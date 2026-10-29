@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Panel de administración de fichas médicas de emergencia y generador de códigos QR para paramédicos.">
+  <title>Panel de Fichas Médicas & QR de Emergencia</title>
+  
+  <link rel="stylesheet" href="/css/styles.css">
+</head>
+<body>
+
+  <!-- BARRA DE NAVEGACIÓN SUPERIOR -->
+  <nav class="navbar" aria-label="Navegación principal">
+    <a href="/dashboard.html" class="brand-container">
+      <div class="brand-icon">🚑</div>
+      <div>
+        <div style="display: flex; align-items: center;">
+          <span class="brand-title">QR Emergencias</span>
+          <span class="brand-badge">Sistema Activo</span>
+        </div>
+        <div style="font-size: 0.72rem; color: #94a3b8;">Fichas Médicas y Códigos QR para Rescatistas</div>
+      </div>
+    </a>
+
+    <div class="nav-actions">
+      <button id="btnNewProfile" class="btn btn-primary" type="button">
+        <span>➕</span>
+        <span>Nueva Ficha Médica</span>
+      </button>
+    </div>
+  </nav>
+
+  <!-- CONTENEDOR PRINCIPAL -->
+  <main class="dashboard-container">
+    
+    <!-- TARJETAS DE ESTADÍSTICAS RÁPIDAS -->
+    <section class="stats-grid" aria-label="Resumen de estadísticas">
+      <div class="stat-card">
+        <div class="stat-icon red">📋</div>
+        <div class="stat-info">
+          <div class="stat-value" id="totalProfiles">0</div>
+          <div class="stat-label">Fichas Activas</div>
+        </div>
+      </div>
+
+      <div class="stat-card">
+        <div class="stat-icon green">🫀</div>
+        <div class="stat-info">
+          <div class="stat-value" id="totalDonors">0</div>
+          <div class="stat-label">Donantes de Órganos</div>
+        </div>
+      </div>
+
+      <div class="stat-card">
+        <div class="stat-icon amber">⚠️</div>
+        <div class="stat-info">
+          <div class="stat-value" id="totalAllergies">0</div>
+          <div class="stat-label">Alertas de Alergias</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- BARRA DE CONTROL Y BÚSQUEDA -->
+    <section class="controls-bar" aria-label="Herramientas de búsqueda">
+      <div class="search-box">
+        <span class="search-icon">🔍</span>
+        <input type="text" id="searchInput" placeholder="Buscar por nombre, documento, grupo sanguíneo..." aria-label="Buscar fichas">
+      </div>
+      <div>
+        <span style="font-size: 0.85rem; color: var(--text-muted);">
+          Escaneo instantáneo con cualquier cámara de smartphone.
+        </span>
+      </div>
+    </section>
+
+    <!-- GRILLA DINÁMICA DE PERFILES -->
+    <section class="profiles-grid" id="profilesGrid" aria-label="Lista de fichas médicas">
+      <!-- Inyectado dinámicamente por public/js/dashboard.js -->
+    </section>
+
+  </main>
+
+  <!-- MODAL: CREAR / EDITAR PERFIL -->
+  <div class="modal-overlay" id="profileModal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <div class="modal-content">
+      
+      <div class="modal-header">
+        <h2 class="modal-title" id="modalTitle">Nueva Ficha de Emergencia</h2>
+        <button class="btn-close" id="btnCloseModal" type="button" aria-label="Cerrar modal">&times;</button>
+      </div>
+
+      <form id="profileForm">
+        <div class="modal-body">
+          <input type="hidden" id="profileId">
+
+          <h3 style="font-size: 0.95rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--emergency-red-light); margin-bottom: 0.75rem; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 0.35rem;">
+            1. Datos Personales del Paciente
+          </h3>
+
+          <div class="form-grid">
+            <div class="form-group form-full">
+              <label for="fullName">Nombre Completo *</label>
+              <input type="text" id="fullName" class="form-control" required placeholder="Ej: Carlos Andrés Morales Díaz">
+            </div>
+
+            <div class="form-group">
+              <label for="nationalId">RUT / DNI / Pasaporte</label>
+              <input type="text" id="nationalId" class="form-control" placeholder="Ej: 16.789.432-K">
+            </div>
+
+            <div class="form-group">
+              <label for="bloodType">Grupo Sanguíneo y Rh *</label>
+              <select id="bloodType" class="form-control" required>
+                <option value="O+">O Positivo (O+)</option>
+                <option value="O-">O Negativo (O-)</option>
+                <option value="A+">A Positivo (A+)</option>
+                <option value="A-">A Negativo (A-)</option>
+                <option value="B+">B Positivo (B+)</option>
+                <option value="B-">B Negativo (B-)</option>
+                <option value="AB+">AB Positivo (AB+)</option>
+                <option value="AB-">AB Negativo (AB-)</option>
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label for="birthDate">Fecha de Nacimiento</label>
+              <input type="date" id="birthDate" class="form-control">
+            </div>
+
+            <div class="form-group">
+              <label for="age">Edad (Años)</label>
+              <input type="number" id="age" class="form-control" placeholder="Ej: 38" min="0" max="130">
+            </div>
+
+            <div class="form-group form-full">
+              <label for="photoUrl">Foto de Perfil (Opcional URL)</label>
+              <input type="url" id="photoUrl" class="form-control" placeholder="https://ejemplo.com/foto.jpg">
+            </div>
+
+            <div class="form-group form-full">
+              <label class="checkbox-label">
+                <input type="checkbox" id="organDonor">
+                <span><strong>El paciente es donante de órganos</strong> (Aparecerá destacado en rescates)</span>
+              </label>
+            </div>
+          </div>
+
+          <h3 style="font-size: 0.95rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--accent-blue); margin: 1.5rem 0 0.75rem; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 0.35rem;">
+            2. Contactos de Emergencia (Llamada Directa)
+          </h3>
+
+          <div class="form-grid">
+            <div class="form-group">
+              <label for="primaryName">Contacto Principal (Nombre)</label>
+              <input type="text" id="primaryName" class="form-control" placeholder="Ej: Sofía Morales (Cónyuge)">
+            </div>
+
+            <div class="form-group">
+              <label for="primaryRelation">Parentesco / Vínculo</label>
+              <input type="text" id="primaryRelation" class="form-control" placeholder="Ej: Cónyuge, Madre, Hermano">
+            </div>
+
+            <div class="form-group form-full">
+              <label for="primaryPhone">Teléfono Móvil Principal (Con código de país)</label>
+              <input type="tel" id="primaryPhone" class="form-control" placeholder="Ej: +56912345678">
+            </div>
+
+            <div class="form-group">
+              <label for="secondaryName">Contacto Secundario (Nombre)</label>
+              <input type="text" id="secondaryName" class="form-control" placeholder="Ej: Dr. Roberto Mendoza">
+            </div>
+
+            <div class="form-group">
+              <label for="secondaryRelation">Parentesco / Especialidad</label>
+              <input type="text" id="secondaryRelation" class="form-control" placeholder="Ej: Médico tratante, Amigo">
+            </div>
+
+            <div class="form-group form-full">
+              <label for="secondaryPhone">Teléfono Móvil Secundario</label>
+              <input type="tel" id="secondaryPhone" class="form-control" placeholder="Ej: +56987654321">
+            </div>
+          </div>
+
+          <h3 style="font-size: 0.95rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--warning-amber); margin: 1.5rem 0 0.75rem; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 0.35rem;">
+            3. Historial Clínico de Urgencia (1 por línea)
+          </h3>
+
+          <div class="form-grid">
+            <div class="form-group form-full">
+              <label for="allergies">⚠️ Alergias y Contraindicaciones (Una por línea)</label>
+              <textarea id="allergies" class="form-control" placeholder="Ej: Penicilina (Anafilaxia)&#10;Maní y frutos secos&#10;Aspirina / AINEs"></textarea>
+            </div>
+
+            <div class="form-group form-full">
+              <label for="conditions">🩺 Enfermedades y Condiciones Preexistentes (Una por línea)</label>
+              <textarea id="conditions" class="form-control" placeholder="Ej: Diabetes Tipo 1 (Insulino dependiente)&#10;Asma severa&#10;Epilepsia"></textarea>
+            </div>
+
+            <div class="form-group form-full">
+              <label for="medications">💊 Medicamentos Actuales y Dosis (Uno por línea)</label>
+              <textarea id="medications" class="form-control" placeholder="Ej: Insulina Glargina 20 UI / noche&#10;Salbutamol inhalador SOS"></textarea>
+            </div>
+          </div>
+
+          <h3 style="font-size: 0.95rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--success-emerald); margin: 1.5rem 0 0.75rem; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 0.35rem;">
+            4. Seguro Médico y Notas Clínicas
+          </h3>
+
+          <div class="form-grid">
+            <div class="form-group">
+              <label for="insuranceCompany">Aseguradora / EPS / Fonasa</label>
+              <input type="text" id="insuranceCompany" class="form-control" placeholder="Ej: Banmédica / Fonasa B">
+            </div>
+
+            <div class="form-group">
+              <label for="policyNumber">N° de Póliza o Afiliación</label>
+              <input type="text" id="policyNumber" class="form-control" placeholder="Ej: BM-984420">
+            </div>
+
+            <div class="form-group form-full">
+              <label for="emergencyLine">Teléfono de Emergencia del Seguro</label>
+              <input type="tel" id="emergencyLine" class="form-control" placeholder="Ej: +56226001000">
+            </div>
+
+            <div class="form-group form-full">
+              <label for="preferredHospital">Centro Médico u Hospital Preferido</label>
+              <input type="text" id="preferredHospital" class="form-control" placeholder="Ej: Hospital Clínico / Clínica Alemana">
+            </div>
+
+            <div class="form-group form-full">
+              <label for="medicalNotes">Dispositivos Médicos / Cirugías / Prótesis</label>
+              <textarea id="medicalNotes" class="form-control" placeholder="Ej: Marcapasos cardíaco, prótesis en rodilla izquierda, usa lentes de contacto"></textarea>
+            </div>
+          </div>
+
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" id="btnCancelModal">Cancelar</button>
+          <button type="submit" class="btn btn-primary" id="btnSaveProfile">💾 Guardar Ficha Médica</button>
+        </div>
+      </form>
+
+    </div>
+  </div>
+
+  <!-- MODAL: CÓDIGO QR GENERADO -->
+  <div class="modal-overlay" id="qrModal" role="dialog" aria-modal="true" aria-labelledby="qrPatientName">
+    <div class="modal-content" style="max-width: 480px;">
+      
+      <div class="modal-header">
+        <h2 class="modal-title" id="qrPatientName">Código QR de Emergencia</h2>
+        <button class="btn-close" id="btnCloseQrModal" type="button" aria-label="Cerrar modal">&times;</button>
+      </div>
+
+      <div class="qr-modal-body">
+        <p style="font-size: 0.88rem; color: var(--text-muted); margin-bottom: 1.25rem;">
+          Al escanear este código con cualquier cámara móvil, los paramédicos accederán instantáneamente a los datos médicos vitales del paciente.
+        </p>
+
+        <div class="qr-image-wrapper">
+          <img id="qrImage" src="" alt="Código QR de Emergencia">
+        </div>
+
+        <div class="qr-url-box" id="qrTargetUrl">
+          Cargando enlace...
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 0.65rem;">
+          <button class="btn btn-primary btn-block" id="btnDownloadQr" type="button">
+            📥 Descargar QR (PNG Alta Calidad)
+          </button>
+          
+          <div style="display: flex; gap: 0.5rem;">
+            <button class="btn btn-secondary" id="btnCopyQrUrl" type="button" style="flex: 1;">
+              📋 Copiar Enlace
+            </button>
+            <button class="btn btn-secondary" id="btnPrintCard" type="button" style="flex: 1;">
+              🖨️ Imprimir Tarjeta
+            </button>
+          </div>
+
+          <button class="btn btn-success btn-block" id="btnOpenEmergency" type="button" style="margin-top: 0.25rem;">
+            🚑 Ver Vista Paramedic Móvil
+          </button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- SCRIPTS -->
+  <script src="/js/dashboard.js"></script>
+</body>
+</html>

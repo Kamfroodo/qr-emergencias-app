@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0">
+  <meta name="theme-color" content="#dc2626">
+  <meta name="description" content="Ficha Médica de Emergencia para Paramédicos y Primeros Auxilios. Acceso instantáneo a tipo de sangre, alergias y contactos.">
+  <title>Ficha Médica de Emergencia | Paramedic Care</title>
+
+  <!-- Google Fonts: Inter -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+  
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- Estilos embebidos a prueba de fallos (Garantizan diseño impecable incluso offline o sin CDN) -->
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      margin: 0;
+      padding: 0;
+      background-color: #f8fafc;
+      color: #0f172a;
+      -webkit-font-smoothing: antialiased;
+    }
+    .header-banner {
+      background: #dc2626;
+      color: #ffffff;
+      padding: 0.75rem 1rem;
+      text-align: center;
+      font-weight: 800;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      font-size: 0.85rem;
+      box-shadow: 0 2px 8px rgba(220, 38, 38, 0.3);
+      position: sticky;
+      top: 0;
+      z-index: 50;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+    }
+    .main-container {
+      max-width: 448px;
+      margin: 0 auto;
+      padding: 1rem;
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+    }
+    .card {
+      background: #ffffff;
+      border-radius: 1rem;
+      padding: 1.25rem;
+      border: 1px solid #e2e8f0;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+    }
+    .btn-call {
+      width: 100%;
+      background: #16a34a;
+      color: #ffffff;
+      font-size: 1.05rem;
+      font-weight: 800;
+      padding: 0.9rem 1.25rem;
+      border-radius: 0.75rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      text-decoration: none;
+      box-shadow: 0 4px 12px rgba(22, 163, 74, 0.25);
+      transition: transform 0.1s, background-color 0.2s;
+    }
+    .btn-call:active {
+      transform: scale(0.97);
+      background: #15803d;
+    }
+    .alert-card {
+      background: #fef2f2;
+      border-left: 4px solid #dc2626;
+      border-radius: 0 1rem 1rem 0;
+      padding: 1rem;
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+    }
+    .avatar-img {
+      width: 76px;
+      height: 76px;
+      border-radius: 50%;
+      object-fit: cover;
+      border: 3px solid #ef4444;
+      flex-shrink: 0;
+    }
+    .blood-badge {
+      display: inline-block;
+      background: #fee2e2;
+      color: #991b1b;
+      font-size: 0.75rem;
+      font-weight: 800;
+      padding: 0.25rem 0.65rem;
+      border-radius: 9999px;
+      border: 1px solid #fecaca;
+    }
+    .donor-badge {
+      display: inline-block;
+      background: #d1fae5;
+      color: #065f46;
+      font-size: 0.75rem;
+      font-weight: 700;
+      padding: 0.25rem 0.65rem;
+      border-radius: 9999px;
+      border: 1px solid #a7f3d0;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- CABECERA DE ALERTA MÉDICA -->
+  <header class="header-banner">
+    <span>⚠️</span>
+    <span>FICHA MÉDICA DE EMERGENCIA</span>
+    <span>⚠️</span>
+  </header>
+
+  <!-- ESTADO DE CARGA -->
+  <div id="loadingState" style="min-height: 60vh; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 2rem;">
+    <div style="font-size: 2.5rem; animation: pulse 1.2s infinite;">❤️‍🩹</div>
+    <p style="color: #64748b; font-weight: 600; font-size: 0.9rem; margin-top: 0.75rem;">Cargando datos clínicos de urgencia...</p>
+  </div>
+
+  <!-- ESTADO DE ERROR / DESACTIVADO -->
+  <div id="errorState" style="display: none; min-height: 60vh; align-items: center; justify-content: center; padding: 1.5rem;">
+    <div class="card" style="max-width: 400px; width: 100%; text-align: center; border-color: #fecaca;">
+      <div style="font-size: 2.5rem; margin-bottom: 0.5rem;">⚠️</div>
+      <h1 id="errorTitle" style="font-size: 1.25rem; font-weight: 800; color: #dc2626; margin: 0 0 0.5rem;">Ficha no disponible</h1>
+      <p id="errorMessage" style="color: #64748b; font-size: 0.88rem; margin: 0 0 1.25rem; line-height: 1.5;">El código QR no es válido o ha sido pausado por el titular.</p>
+      <a href="/dashboard.html" style="display: inline-block; background: #0f172a; color: white; text-decoration: none; font-size: 0.82rem; font-weight: 700; padding: 0.55rem 1rem; border-radius: 0.5rem;">
+        Ir al Panel Principal
+      </a>
+    </div>
+  </div>
+
+  <!-- CONTENIDO PRINCIPAL DE EMERGENCIA (DISEÑO CLEAN CARDS GEMINI) -->
+  <main id="patientContent" class="main-container" style="display: none;">
+
+    <!-- 1. IDENTIFICACIÓN PRINCIPAL -->
+    <section class="card" style="display: flex; align-items: center; gap: 1rem;">
+      <img 
+        id="patientPhoto"
+        src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=300&q=80" 
+        alt="Foto del paciente" 
+        class="avatar-img"
+        onerror="this.src='https://via.placeholder.com/100?text=PACIENTE'"
+      />
+      <div style="min-width: 0; flex: 1;">
+        <h1 id="patientName" style="font-size: 1.25rem; font-weight: 900; margin: 0; color: #0f172a; line-height: 1.2;">Cargando...</h1>
+        <p id="patientSub" style="font-size: 0.8rem; color: #64748b; margin: 0.25rem 0 0.5rem;">Nac: --</p>
+        <div style="display: flex; flex-wrap: wrap; gap: 0.4rem;">
+          <span class="blood-badge">Grupo: <strong id="bloodTypeBadge">O+</strong></span>
+          <span id="donorPill" class="donor-badge" style="display: none;">🫀 Donante</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- 2. BOTÓN DE LLAMADA DE EMERGENCIA DIRECTA (PRIORIDAD ABSOLUTA) -->
+    <section class="card" style="text-align: center;">
+      <h2 style="font-size: 0.72rem; font-weight: 800; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.08em; margin: 0 0 0.75rem;">Contacto de Emergencia Prioritario</h2>
+      
+      <a id="btnCallContact" href="#" class="btn-call">
+        <span style="font-size: 1.2rem;">📞</span>
+        <span id="callButtonText">Llamar a Contacto de Emergencia</span>
+      </a>
+
+      <!-- Acciones complementarias: WhatsApp y Lector por Voz -->
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin-top: 0.65rem;">
+        <a id="btnWhatsApp" href="#" target="_blank" style="background: #ecfdf5; color: #047857; border: 1px solid #a7f3d0; text-decoration: none; font-size: 0.78rem; font-weight: 700; padding: 0.6rem 0.5rem; border-radius: 0.5rem; display: flex; align-items: center; justify-content: center; gap: 0.35rem;">
+          <span>💬</span> <span>WhatsApp SOS</span>
+        </a>
+        <button id="btnVoiceSummary" type="button" style="background: #f1f5f9; color: #334155; border: 1px solid #cbd5e1; font-size: 0.78rem; font-weight: 700; padding: 0.6rem 0.5rem; border-radius: 0.5rem; display: flex; align-items: center; justify-content: center; gap: 0.35rem; cursor: pointer;">
+          <span>🔊</span> <span id="voiceBtnText">Escuchar Audio</span>
+        </button>
+      </div>
+    </section>
+
+    <!-- 3. CONDICIONES CRÍTICAS Y ALERGIAS (ALERTA ROJA VISUAL) -->
+    <section class="alert-card">
+      <div style="display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0.4rem;">
+        <span style="color: #dc2626;">⚠️</span>
+        <h2 style="font-size: 0.75rem; font-weight: 800; color: #b91c1c; text-transform: uppercase; letter-spacing: 0.05em; margin: 0;">Condiciones y Alergias Críticas</h2>
+      </div>
+      <div id="criticalConditionsContent" style="color: #7f1d1d; font-weight: 600; font-size: 0.88rem; line-height: 1.45;">
+        <!-- Inyectado por JS -->
+      </div>
+    </section>
+
+    <!-- 4. MEDICAMENTOS ACTUALES -->
+    <section class="card">
+      <div style="display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0.4rem;">
+        <span>💊</span>
+        <h2 style="font-size: 0.75rem; font-weight: 800; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em; margin: 0;">Medicamentos Actuales y Dosis</h2>
+      </div>
+      <div id="medicationsContent" style="color: #1e293b; font-size: 0.88rem; line-height: 1.5;">
+        <!-- Inyectado por JS -->
+      </div>
+    </section>
+
+    <!-- 5. SEGURO MÉDICO Y HOSPITAL -->
+    <section class="card">
+      <div style="display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0.5rem;">
+        <span>🏥</span>
+        <h2 style="font-size: 0.75rem; font-weight: 800; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em; margin: 0;">Cobertura y Centro Preferido</h2>
+      </div>
+      <div style="font-size: 0.85rem; color: #475569; display: flex; flex-direction: column; gap: 0.25rem;">
+        <p style="margin: 0;"><strong>Aseguradora / EPS:</strong> <span id="insuranceName" style="color: #0f172a;">--</span></p>
+        <p style="margin: 0;"><strong>N° Póliza / Afiliación:</strong> <span id="policyNumber" style="color: #0f172a;">--</span></p>
+        <p style="margin: 0;"><strong>Hospital Preferido:</strong> <span id="preferredHospital" style="color: #0f172a; font-weight: 700;">Sin preferencia</span></p>
+      </div>
+    </section>
+
+    <!-- 6. NOTAS MÉDICAS / OBSERVACIONES -->
+    <section id="notesSection" class="card" style="display: none;">
+      <div style="display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0.4rem;">
+        <span>📝</span>
+        <h2 style="font-size: 0.75rem; font-weight: 800; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em; margin: 0;">Notas Médicas / Observaciones</h2>
+      </div>
+      <p id="medicalNotesText" style="color: #334155; font-size: 0.88rem; line-height: 1.5; margin: 0; white-space: pre-line;"></p>
+    </section>
+
+    <!-- 7. BOTÓN PARA COMPARTIR UBICACIÓN GPS -->
+    <button id="btnShareGps" type="button" style="width: 100%; background: #0f172a; color: white; border: none; font-size: 0.82rem; font-weight: 700; padding: 0.85rem; border-radius: 0.75rem; display: flex; align-items: center; justify-content: center; gap: 0.5rem; cursor: pointer; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+      <span>📍</span>
+      <span>Compartir Ubicación de Asistencia del Paciente</span>
+    </button>
+
+  </main>
+
+  <!-- PIE DE PÁGINA INSTITUCIONAL -->
+  <footer style="text-align: center; color: #94a3b8; font-size: 0.75rem; padding: 2rem 1rem 3rem;">
+    <p style="margin: 0 0 0.25rem; font-weight: 600;">Sistema de Emergencia QR • Plataforma Segura</p>
+    <p style="margin: 0; font-size: 0.68rem;">Datos médicos de consulta inmediata para rescatistas y paramédicos</p>
+  </footer>
+
+  <!-- LÓGICA DE CARGA Y RENDERIZADO -->
+  <script>
+    (async function initEmergencyApp() {
+      const urlParams = new URLSearchParams(window.location.search);
+      const token = urlParams.get('token') || urlParams.get('id');
+
+      const loadingState = document.getElementById('loadingState');
+      const errorState = document.getElementById('errorState');
+      const patientContent = document.getElementById('patientContent');
+      const errorTitle = document.getElementById('errorTitle');
+      const errorMessage = document.getElementById('errorMessage');
+
+      if (!token) {
+        loadingState.style.display = 'none';
+        errorTitle.textContent = 'Token no especificado';
+        errorMessage.textContent = 'No se proporcionó un token o código de emergencia válido (?token=...).';
+        errorState.style.display = 'flex';
+        return;
+      }
+
+      try {
+        const response = await fetch('/api/v1/emergency/' + encodeURIComponent(token));
+
+        if (response.status === 403) {
+          const errData = await response.json();
+          loadingState.style.display = 'none';
+          errorTitle.textContent = 'Ficha Médica Desactivada';
+          errorMessage.textContent = errData.message || 'El titular ha pausado temporalmente este código QR por seguridad.';
+          errorState.style.display = 'flex';
+          return;
+        }
+
+        if (!response.ok) {
+          throw new Error('Ficha médica no encontrada o código no registrado.');
+        }
+
+        const data = await response.json();
+        renderProfile(data);
+
+        // Guardar en caché offline para rescates sin cobertura
+        try {
+          localStorage.setItem('emg_cache_' + token, JSON.stringify(data));
+        } catch(e) {}
+
+      } catch (err) {
+        // Fallback a caché offline si se pierde conexión
+        const cached = localStorage.getItem('emg_cache_' + token);
+        if (cached) {
+          try {
+            renderProfile(JSON.parse(cached));
+            return;
+          } catch(e) {}
+        }
+
+        loadingState.style.display = 'none';
+        errorTitle.textContent = 'Error de Carga';
+        errorMessage.textContent = err.message;
+        errorState.style.display = 'flex';
+      }
+
+      function renderProfile(p) {
+        loadingState.style.display = 'none';
+        errorState.style.display = 'none';
+        patientContent.style.display = 'flex';
+
+        const name = p.fullName || p.profile_name || 'Paciente';
+        const blood = p.bloodType || p.blood_type || 'N/E';
+
+        document.title = `🚨 URGENCIA: ${name} (${blood})`;
+
+        // Foto y Nombres
+        if (p.photoUrl || p.photo_url) {
+          document.getElementById('patientPhoto').src = p.photoUrl || p.photo_url;
+        }
+        document.getElementById('patientName').textContent = name;
+        
+        const birthDate = p.birthDate || p.birth_date || '';
+        const age = p.age ? `${p.age} años` : '';
+        const doc = p.nationalId || p.national_id ? `ID: ${p.nationalId || p.national_id}` : '';
+        document.getElementById('patientSub').textContent = [doc, age, birthDate ? `Nac: ${birthDate}` : ''].filter(Boolean).join(' • ') || 'Sin información secundaria';
+
+        document.getElementById('bloodTypeBadge').textContent = blood;
+
+        if (p.organDonor || p.organ_donor) {
+          document.getElementById('donorPill').style.display = 'inline-block';
+        }
+
+        // Contactos y Botón de llamada directa
+        const contact = (p.emergency_contacts && p.emergency_contacts[0]) || p.primaryContact || {};
+        const contactName = contact.name || 'Contacto de Emergencia';
+        const contactPhone = contact.phone || '';
+        const rawWa = contact.whatsapp || contactPhone.replace(/[^0-9]/g, '');
+
+        if (contactPhone) {
+          document.getElementById('btnCallContact').href = 'tel:' + contactPhone;
+          document.getElementById('callButtonText').textContent = `Llamar a ${contactName}`;
+        } else {
+          document.getElementById('btnCallContact').style.opacity = '0.5';
+          document.getElementById('btnCallContact').style.pointerEvents = 'none';
+          document.getElementById('callButtonText').textContent = 'Sin teléfono de contacto registrado';
+        }
+
+        if (rawWa) {
+          document.getElementById('btnWhatsApp').href = `https://wa.me/${encodeURIComponent(rawWa)}?text=${encodeURIComponent('EMERGENCIA: Asistiendo a ' + name + ' tras escanear ficha QR médica.')}`;
+        } else {
+          document.getElementById('btnWhatsApp').style.display = 'none';
+        }
+
+        // Condiciones Críticas y Alergias (Caja Roja)
+        const conditions = p.critical_conditions || p.conditions || [];
+        const allergies = p.allergies || [];
+        const mergedAlerts = [];
+
+        allergies.forEach(a => mergedAlerts.push(`⛔ ALERGIA SEVERA: ${a}`));
+        conditions.forEach(c => mergedAlerts.push(`⚡ CONDICIÓN: ${c}`));
+
+        const alertContainer = document.getElementById('criticalConditionsContent');
+        if (mergedAlerts.length > 0) {
+          alertContainer.innerHTML = mergedAlerts.map(alert => `
+            <div style="padding: 0.2rem 0; border-bottom: 1px solid rgba(220, 38, 38, 0.15);">${escapeHtml(alert)}</div>
+          `).join('');
+        } else {
+          alertContainer.innerHTML = '<span style="color: #15803d; font-weight: 500; font-size: 0.85rem;">✓ Sin condiciones o alergias críticas registradas.</span>';
+        }
+
+        // Medicamentos
+        const meds = p.medications || [];
+        const medsContainer = document.getElementById('medicationsContent');
+        if (Array.isArray(meds) && meds.length > 0) {
+          medsContainer.innerHTML = meds.map(m => `
+            <div style="padding: 0.2rem 0; border-bottom: 1px solid #f1f5f9;">• ${escapeHtml(m)}</div>
+          `).join('');
+        } else if (typeof meds === 'string' && meds.trim()) {
+          medsContainer.textContent = meds;
+        } else {
+          medsContainer.innerHTML = '<span style="color: #94a3b8; font-size: 0.85rem;">Ninguno registrado.</span>';
+        }
+
+        // Seguro y Hospital
+        const ins = p.insurance || {};
+        if (ins.company) document.getElementById('insuranceName').textContent = ins.company;
+        if (ins.policyNumber) document.getElementById('policyNumber').textContent = ins.policyNumber;
+        const hospital = p.preferredHospital || p.preferred_hospital;
+        if (hospital) document.getElementById('preferredHospital').textContent = hospital;
+
+        // Notas Adicionales
+        const notes = p.medicalNotes || p.medical_notes;
+        if (notes && notes.trim()) {
+          document.getElementById('medicalNotesText').textContent = notes;
+          document.getElementById('notesSection').style.display = 'block';
+        }
+
+        // Audio lector Web Speech API
+        setupAudioReader(name, blood, p.organDonor || p.organ_donor, allergies, conditions);
+
+        // Compartir GPS
+        document.getElementById('btnShareGps').addEventListener('click', () => {
+          if (!navigator.geolocation) {
+            alert('Geolocalización no soportada en este navegador.');
+            return;
+          }
+          navigator.geolocation.getCurrentPosition(
+            (pos) => {
+              const mapsUrl = `https://maps.google.com/?q=${pos.coords.latitude},${pos.coords.longitude}`;
+              const text = `🚨 Emergencia con ${name}. Ubicación: ${mapsUrl}`;
+              if (navigator.share) {
+                navigator.share({ title: 'Ubicación de Emergencia', text, url: mapsUrl }).catch(() => {});
+              } else {
+                navigator.clipboard.writeText(text);
+                alert('¡Enlace de ubicación copiado al portapapeles!\n' + mapsUrl);
+              }
+            },
+            (err) => alert('No se pudo obtener ubicación: ' + err.message),
+            { enableHighAccuracy: true, timeout: 8000 }
+          );
+        });
+      }
+
+      function setupAudioReader(name, blood, isDonor, allergies, conditions) {
+        const btnVoice = document.getElementById('btnVoiceSummary');
+        const voiceText = document.getElementById('voiceBtnText');
+
+        if (!('speechSynthesis' in window)) {
+          btnVoice.style.display = 'none';
+          return;
+        }
+
+        let isSpeaking = false;
+
+        btnVoice.addEventListener('click', () => {
+          if (isSpeaking) {
+            window.speechSynthesis.cancel();
+            isSpeaking = false;
+            voiceText.textContent = 'Escuchar Audio';
+            return;
+          }
+
+          const speechContent = `Ficha médica de emergencia. Paciente: ${name}. Grupo sanguíneo: ${blood}. ${isDonor ? 'Donante de órganos.' : ''} ${allergies.length ? 'Alergias graves: ' + allergies.join('. ') : 'Sin alergias.'} ${conditions.length ? 'Condiciones: ' + conditions.join('. ') : ''}`;
+
+          const utterance = new SpeechSynthesisUtterance(speechContent);
+          utterance.lang = 'es-ES';
+          utterance.rate = 1.05;
+
+          utterance.onstart = () => {
+            isSpeaking = true;
+            voiceText.textContent = 'Detener Audio';
+          };
+          utterance.onend = utterance.onerror = () => {
+            isSpeaking = false;
+            voiceText.textContent = 'Escuchar Audio';
+          };
+
+          window.speechSynthesis.speak(utterance);
+        });
+      }
+
+      function escapeHtml(str) {
+        if (!str) return '';
+        const div = document.createElement('div');
+        div.textContent = str;
+        return div.innerHTML;
+      }
+    })();
+  </script>
+
+</body>
+</html>
