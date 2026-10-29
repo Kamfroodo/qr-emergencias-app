@@ -4,11 +4,22 @@
  */
 
 require('dotenv').config();
-const app = require('./app');
-
 const INITIAL_PORT = parseInt(process.env.PORT, 10) || 3000;
 const NODE_ENV = process.env.NODE_ENV || 'development';
 
+if (NODE_ENV === 'production') {
+  if (!process.env.JWT_SECRET || Buffer.byteLength(process.env.JWT_SECRET) < 32) {
+    throw new Error('Configura JWT_SECRET con al menos 32 bytes aleatorios en producción.');
+  }
+  if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    throw new Error('Configura SUPABASE_URL y SUPABASE_SERVICE_ROLE_KEY para persistencia en producción.');
+  }
+  if (!process.env.BASE_URL || new URL(process.env.BASE_URL).protocol !== 'https:') {
+    throw new Error('Configura BASE_URL con el dominio HTTPS público en producción.');
+  }
+}
+
+const app = require('./app');
 let currentServer = null;
 
 function startServer(port) {
@@ -16,7 +27,7 @@ function startServer(port) {
   currentServer = server;
 
   server.on('listening', () => {
-    if (!process.env.BASE_URL || process.env.BASE_URL.includes(':3000')) {
+    if (!process.env.BASE_URL) {
       process.env.BASE_URL = `http://localhost:${port}`;
     }
 
@@ -34,12 +45,18 @@ function startServer(port) {
 
   server.on('error', (err) => {
     if (err.code === 'EADDRINUSE') {
+      if (NODE_ENV === 'production') {
+        console.error(`[ERROR] El puerto ${port} ya está ocupado en producción.`);
+        process.exitCode = 1;
+        return;
+      }
       const nextPort = port + 1;
       console.warn(`[AVISO] El puerto ${port} está ocupado por otra aplicación en tu sistema.`);
       console.log(`[INFO] Intentando iniciar automáticamente en el puerto ${nextPort}...`);
       startServer(nextPort);
     } else {
       console.error('[ERROR] Error inesperado en el servidor:', err);
+      process.exitCode = 1;
     }
   });
 }
@@ -67,4 +84,3 @@ function handleShutdown(signal) {
 
 process.on('SIGTERM', () => handleShutdown('SIGTERM'));
 process.on('SIGINT', () => handleShutdown('SIGINT'));
-

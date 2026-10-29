@@ -8,7 +8,12 @@ const cors = require('cors');
 const helmet = require('helmet');
 const path = require('path');
 const QRCode = require('qrcode');
+const swaggerUi = require('swagger-ui-express');
 const { v4: uuidv4 } = require('uuid');
+const openApiSpec = require('./openapi');
+
+// Sistema de autenticación JWT
+const { router: authRouter, verifyToken } = require('./auth');
 
 const app = express();
 
@@ -39,8 +44,24 @@ app.use(express.urlencoded({ extended: true }));
 // Archivos estáticos del Frontend
 app.use(express.static(path.join(__dirname, 'public')));
 
+// Documentación interactiva de la API
+app.get('/api-docs.json', (req, res) => {
+  res.json(openApiSpec);
+});
+app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(openApiSpec, {
+  customSiteTitle: 'QR Emergencias API',
+  swaggerOptions: {
+    persistAuthorization: false,
+  },
+}));
+
 // Conexión a Base de Datos (Supabase con fallback local)
 const db = require('./db');
+
+// ==========================================
+// Rutas de Autenticación
+// ==========================================
+app.use('/api/auth', authRouter);
 
 // ==========================================
 // Rutas de Verificación de Salud (Health Check)
@@ -122,9 +143,9 @@ app.get('/api/v1/emergency/:publicToken', async (req, res) => {
 });
 
 // 2. Obtener todos los perfiles (para el Dashboard)
-app.get('/api/profiles', async (req, res) => {
+app.get('/api/profiles', verifyToken, async (req, res) => {
   try {
-    const all = await db.getAllProfiles();
+    const all = await db.getAllProfiles(req.user.userId);
     const summaryList = all.map(p => ({
       id: p.id,
       public_token: p.public_token,
@@ -147,10 +168,10 @@ app.get('/api/profiles', async (req, res) => {
 });
 
 // 3. Obtener un perfil específico por ID o Token (para Dashboard y Vista de Emergencia)
-app.get('/api/profiles/:id', async (req, res) => {
+app.get('/api/profiles/:id', verifyToken, async (req, res) => {
   try {
     const { id } = req.params;
-    const profile = await db.getProfileByIdOrToken(id);
+    const profile = await db.getProfileByIdOrToken(id, req.user.userId);
 
     if (!profile) {
       return res.status(404).json({
@@ -167,6 +188,7 @@ app.get('/api/profiles/:id', async (req, res) => {
 });
 
 // 4. Crear nuevo perfil de emergencia (Compatible con /api/profiles y /api/v1/profiles)
+// 🔒 PROTEGIDO: Requiere token JWT válido (Authorization: Bearer <token>)
 const createProfileHandler = async (req, res) => {
   try {
     const body = req.body;
@@ -230,7 +252,7 @@ const createProfileHandler = async (req, res) => {
 
     const newProfile = {
       id: internalId,
-      user_id: body.user_id || 'user-demo-123',
+      user_id: req.user.userId,
       public_token: publicToken,
       is_active: true,
       fullName,
@@ -285,14 +307,15 @@ const createProfileHandler = async (req, res) => {
   }
 };
 
-app.post('/api/profiles', createProfileHandler);
-app.post('/api/v1/profiles', createProfileHandler);
+app.post('/api/profiles', verifyToken, createProfileHandler);
+app.post('/api/v1/profiles', verifyToken, createProfileHandler);
 
 // 5. Alternar estado Activo / Pausado de una ficha (Interruptor de seguridad)
-app.patch('/api/profiles/:id/status', async (req, res) => {
+// 🔒 PROTEGIDO: Requiere token JWT válido
+app.patch('/api/profiles/:id/status', verifyToken, async (req, res) => {
   try {
     const { id } = req.params;
-    const updated = await db.toggleProfileStatus(id, req.body.is_active);
+    const updated = await db.toggleProfileStatus(id, req.body.is_active, req.user.userId);
 
     if (!updated) {
       return res.status(404).json({ error: 'Perfil no encontrado.' });
@@ -310,10 +333,80 @@ app.patch('/api/profiles/:id/status', async (req, res) => {
 });
 
 // 6. Actualizar perfil existente
-app.put('/api/profiles/:id', async (req, res) => {
+// 🔒 PROTEGIDO: Requiere token JWT válido
+app.put('/api/profiles/:id', verifyToken, async (req, res) => {
   try {
     const { id } = req.params;
-    const updated = await db.updateProfile(id, req.body);
+    const body = req.body;
+    if (!body || typeof body !== 'object' || Array.isArray(body)) {
+      return res.status(400).json({ error: 'El cuerpo debe ser un objeto JSON.' });
+    }
+
+    const existing = await db.getProfileByIdOrToken(id, req.user.userId);
+    if (!existing) {
+      return res.status(404).json({ error: 'Perfil de emergencia no encontrado para actualizar.' });
+    }
+
+    const editableFields = [
+      'fullName', 'birthDate', 'age', 'nationalId', 'bloodType', 'organDonor',
+      'photoUrl', 'primaryContact', 'secondaryContact', 'allergies', 'conditions',
+      'medications', 'insurance', 'preferredHospital', 'medicalNotes',
+    ];
+    const updates = Object.fromEntries(
+      editableFields.filter(field => Object.hasOwn(body, field)).map(field => [field, body[field]])
+    );
+    const aliases = {
+      profile_name: 'fullName',
+      birth_date: 'birthDate',
+      national_id: 'nationalId',
+      blood_type: 'bloodType',
+      organ_donor: 'organDonor',
+      photo_url: 'photoUrl',
+      critical_conditions: 'conditions',
+      preferred_hospital: 'preferredHospital',
+      medical_notes: 'medicalNotes',
+    };
+    for (const [alias, field] of Object.entries(aliases)) {
+      if (!Object.hasOwn(updates, field) && Object.hasOwn(body, alias)) updates[field] = body[alias];
+    }
+    const fullName = updates.fullName ?? existing.fullName;
+    const bloodType = updates.bloodType ?? existing.bloodType;
+
+    if (typeof fullName !== 'string' || !fullName.trim() || typeof bloodType !== 'string' || !bloodType.trim()) {
+      return res.status(400).json({ error: 'El nombre completo y el grupo sanguíneo son obligatorios.' });
+    }
+
+    if (Object.hasOwn(updates, 'age') && updates.age !== null) {
+      const age = Number(updates.age);
+      if (!Number.isInteger(age) || age < 0 || age > 130) {
+        return res.status(400).json({ error: 'La edad debe ser un número entero entre 0 y 130.' });
+      }
+      updates.age = age;
+    }
+
+    for (const field of ['primaryContact', 'secondaryContact', 'insurance']) {
+      if (Object.hasOwn(updates, field) &&
+          (!updates[field] || typeof updates[field] !== 'object' || Array.isArray(updates[field]))) {
+        return res.status(400).json({ error: `El campo ${field} debe ser un objeto JSON.` });
+      }
+    }
+
+    for (const field of ['allergies', 'conditions', 'critical_conditions', 'medications']) {
+      if (!Object.hasOwn(updates, field)) continue;
+      if (typeof updates[field] === 'string') {
+        updates[field] = updates[field].split('\n').map(item => item.trim()).filter(Boolean);
+      } else if (Array.isArray(updates[field]) && updates[field].every(item => typeof item === 'string')) {
+        updates[field] = updates[field].map(item => item.trim()).filter(Boolean);
+      } else {
+        return res.status(400).json({ error: `El campo ${field} debe ser una lista de textos.` });
+      }
+    }
+
+    const updated = await db.updateProfile(id, {
+      ...updates,
+      fullName: fullName.trim(),
+      bloodType: bloodType.trim(),
+    }, req.user.userId);
 
     if (!updated) {
       return res.status(404).json({ error: 'Perfil de emergencia no encontrado para actualizar.' });
@@ -327,10 +420,11 @@ app.put('/api/profiles/:id', async (req, res) => {
 });
 
 // 7. Eliminar perfil
-app.delete('/api/profiles/:id', async (req, res) => {
+// 🔒 PROTEGIDO: Requiere token JWT válido
+app.delete('/api/profiles/:id', verifyToken, async (req, res) => {
   try {
     const { id } = req.params;
-    const ok = await db.deleteProfile(id);
+    const ok = await db.deleteProfile(id, req.user.userId);
 
     if (!ok) {
       return res.status(404).json({ error: 'Perfil no encontrado.' });
@@ -344,10 +438,11 @@ app.delete('/api/profiles/:id', async (req, res) => {
 });
 
 // 8. Generador de Código QR para el Perfil
-app.get('/api/profiles/:id/qr', async (req, res) => {
+// 🔒 PROTEGIDO: Requiere token JWT válido
+app.get('/api/profiles/:id/qr', verifyToken, async (req, res) => {
   try {
     const { id } = req.params;
-    const profile = await db.getProfileByIdOrToken(id);
+    const profile = await db.getProfileByIdOrToken(id, req.user.userId);
 
     if (!profile) {
       return res.status(404).json({ error: 'Perfil no encontrado para generar código QR' });
@@ -397,9 +492,15 @@ app.get('/api/profiles/:id/qr', async (req, res) => {
   }
 });
 
-// Redirección por defecto a la vista del panel
+// Ruta amigable para acceso directo a ficha por QR: /emergency/:token
+app.get('/emergency/:token', (req, res) => {
+  const { token } = req.params;
+  res.redirect(`/emergency.html?token=${encodeURIComponent(token)}`);
+});
+
+// Redirección por defecto: al acceder a la raíz, ir a login (el dashboard requiere JWT)
 app.get('/', (req, res) => {
-  res.redirect('/dashboard.html');
+  res.redirect('/login.html');
 });
 
 // Manejador 404 para rutas no encontradas

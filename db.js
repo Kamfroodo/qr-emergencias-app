@@ -6,7 +6,7 @@
 const { createClient } = require('@supabase/supabase-js');
 
 const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseKey = process.env.SUPABASE_KEY || process.env.SUPABASE_ANON_KEY;
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 let supabase = null;
 
@@ -16,9 +16,13 @@ if (supabaseUrl && supabaseKey && !supabaseKey.includes('tu_supabase')) {
     console.log('[DB] Conectado exitosamente a Supabase PostgreSQL:', supabaseUrl);
   } catch (err) {
     console.error('[DB] Error inicializando cliente de Supabase:', err.message);
+    if (process.env.NODE_ENV === 'production') throw err;
   }
 } else {
-  console.log('[DB] Modo local/memoria activo (configura SUPABASE_KEY en .env para persistencia en la nube)');
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('Configura SUPABASE_URL y SUPABASE_SERVICE_ROLE_KEY para persistencia en producción.');
+  }
+  console.log('[DB] Modo local/memoria activo (configura SUPABASE_SERVICE_ROLE_KEY para persistencia en la nube)');
 }
 
 // Datos demo en memoria para desarrollo local
@@ -154,7 +158,7 @@ function mapToDb(p) {
     is_active: p.is_active !== false,
     full_name: p.fullName || p.profile_name,
     birth_date: p.birthDate || p.birth_date || null,
-    age: p.age || null,
+    age: p.age ?? null,
     national_id: p.nationalId || p.national_id || '',
     blood_type: p.bloodType || p.blood_type,
     organ_donor: Boolean(p.organDonor || p.organ_donor),
@@ -175,42 +179,58 @@ function mapToDb(p) {
 // MÉTODOS DE BASE DE DATOS
 // ==========================================
 
-async function getAllProfiles() {
+async function getAllProfiles(userId) {
   if (supabase) {
-    const { data, error } = await supabase
+    let query = supabase
       .from('profiles')
       .select('*')
       .order('created_at', { ascending: false });
+    if (userId) query = query.eq('user_id', userId);
+
+    const { data, error } = await query;
 
     if (error) {
       console.error('[DB Error] getAllProfiles:', error.message);
-      return localProfiles;
+      if (process.env.NODE_ENV === 'production') {
+        throw new Error('No se pudieron cargar los perfiles desde Supabase.');
+      }
+      return userId ? localProfiles.filter(profile => profile.user_id === userId) : localProfiles;
     }
     return data.map(mapFromDb);
   }
-  return localProfiles;
+  return userId ? localProfiles.filter(profile => profile.user_id === userId) : localProfiles;
 }
 
-async function getProfileByIdOrToken(identifier) {
+async function getProfileByIdOrToken(identifier, userId) {
   if (!identifier) return null;
 
   if (supabase) {
     // Buscar por ID interno o por token público
-    const { data, error } = await supabase
+    let query = supabase
       .from('profiles')
       .select('*')
       .or(`id.eq.${identifier},public_token.eq.${identifier}`)
-      .limit(1)
-      .maybeSingle();
+      .limit(1);
+    if (userId) query = query.eq('user_id', userId);
+    const { data, error } = await query.maybeSingle();
 
     if (error) {
       console.error('[DB Error] getProfileByIdOrToken:', error.message);
-      return localProfiles.find(p => p.id === identifier || p.public_token === identifier) || null;
+      if (process.env.NODE_ENV === 'production') {
+        throw new Error('No se pudo consultar el perfil en Supabase.');
+      }
+      return localProfiles.find(p =>
+        (p.id === identifier || p.public_token === identifier) &&
+        (!userId || p.user_id === userId)
+      ) || null;
     }
     return mapFromDb(data);
   }
 
-  return localProfiles.find(p => p.id === identifier || p.public_token === identifier) || null;
+  return localProfiles.find(p =>
+    (p.id === identifier || p.public_token === identifier) &&
+    (!userId || p.user_id === userId)
+  ) || null;
 }
 
 async function createProfile(profileData) {
@@ -235,16 +255,31 @@ async function createProfile(profileData) {
   return profileData;
 }
 
-async function updateProfile(id, profileData) {
-  if (supabase) {
-    const dbRow = mapToDb({ ...profileData, id });
+async function updateProfile(id, profileData, userId) {
+  const existing = await getProfileByIdOrToken(id, userId);
+  if (!existing) return null;
+  const updatedProfile = {
+    ...existing,
+    ...profileData,
+    id: existing.id,
+    user_id: existing.user_id,
+    public_token: existing.public_token,
+    is_active: existing.is_active,
+    primaryContact: { ...existing.primaryContact, ...profileData.primaryContact },
+    secondaryContact: { ...existing.secondaryContact, ...profileData.secondaryContact },
+    insurance: { ...existing.insurance, ...profileData.insurance },
+    updatedAt: new Date().toISOString()
+  };
 
-    const { data, error } = await supabase
+  if (supabase) {
+    const dbRow = mapToDb(updatedProfile);
+
+    let query = supabase
       .from('profiles')
       .update(dbRow)
-      .eq('id', id)
-      .select()
-      .single();
+      .eq('id', existing.id);
+    if (userId) query = query.eq('user_id', userId);
+    const { data, error } = await query.select().maybeSingle();
 
     if (error) {
       console.error('[DB Error] updateProfile:', error.message);
@@ -253,44 +288,46 @@ async function updateProfile(id, profileData) {
     return mapFromDb(data);
   }
 
-  const index = localProfiles.findIndex(p => p.id === id);
-  if (index === -1) return null;
-  localProfiles[index] = { ...localProfiles[index], ...profileData, updatedAt: new Date().toISOString() };
+  const index = localProfiles.findIndex(p => p.id === existing.id);
+  if (index === -1 || (userId && localProfiles[index].user_id !== userId)) return null;
+  localProfiles[index] = updatedProfile;
   return localProfiles[index];
 }
 
-async function deleteProfile(id) {
+async function deleteProfile(id, userId) {
   if (supabase) {
-    const { error } = await supabase
+    let query = supabase
       .from('profiles')
       .delete()
       .eq('id', id);
+    if (userId) query = query.eq('user_id', userId);
+    const { data, error } = await query.select('id');
 
     if (error) {
       console.error('[DB Error] deleteProfile:', error.message);
       throw new Error('Error al eliminar en Supabase: ' + error.message);
     }
-    return true;
+    return data.length > 0;
   }
 
   const initLen = localProfiles.length;
-  localProfiles = localProfiles.filter(p => p.id !== id);
+  localProfiles = localProfiles.filter(p => p.id !== id || (userId && p.user_id !== userId));
   return localProfiles.length < initLen;
 }
 
-async function toggleProfileStatus(id, explicitStatus) {
-  const existing = await getProfileByIdOrToken(id);
+async function toggleProfileStatus(id, explicitStatus, userId) {
+  const existing = await getProfileByIdOrToken(id, userId);
   if (!existing) return null;
 
   const newStatus = typeof explicitStatus === 'boolean' ? explicitStatus : !existing.is_active;
 
   if (supabase) {
-    const { data, error } = await supabase
+    let query = supabase
       .from('profiles')
       .update({ is_active: newStatus, updated_at: new Date().toISOString() })
-      .eq('id', existing.id)
-      .select()
-      .single();
+      .eq('id', existing.id);
+    if (userId) query = query.eq('user_id', userId);
+    const { data, error } = await query.select().maybeSingle();
 
     if (error) {
       console.error('[DB Error] toggleProfileStatus:', error.message);

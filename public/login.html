@@ -1,0 +1,755 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Acceso seguro al sistema de gestión de fichas médicas QR Emergencias.">
+  <title>Acceso Seguro — QR Emergencias</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg-base: #060b14;
+      --bg-surface: rgba(15, 23, 42, 0.85);
+      --bg-card: rgba(22, 35, 58, 0.7);
+      --border: rgba(255, 255, 255, 0.08);
+      --border-focus: rgba(239, 35, 60, 0.6);
+      --red-primary: #ef233c;
+      --red-glow: rgba(239, 35, 60, 0.25);
+      --red-dark: #b91c2e;
+      --text-primary: #f1f5f9;
+      --text-muted: #64748b;
+      --text-subtle: #94a3b8;
+      --success: #10b981;
+      --success-glow: rgba(16, 185, 129, 0.2);
+      --error: #f43f5e;
+    }
+
+    html, body {
+      height: 100%;
+      font-family: 'Inter', sans-serif;
+      background-color: var(--bg-base);
+      color: var(--text-primary);
+    }
+
+    /* Fondo con gradientes animados */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background:
+        radial-gradient(ellipse 80% 60% at 20% 10%, rgba(239, 35, 60, 0.08) 0%, transparent 60%),
+        radial-gradient(ellipse 60% 50% at 80% 90%, rgba(59, 130, 246, 0.06) 0%, transparent 60%),
+        radial-gradient(ellipse 50% 40% at 50% 50%, rgba(15, 23, 42, 0.95) 0%, transparent 100%);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .page-wrapper {
+      position: relative;
+      z-index: 1;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 2rem 1rem;
+    }
+
+    .auth-container {
+      width: 100%;
+      max-width: 440px;
+    }
+
+    /* Branding */
+    .brand {
+      text-align: center;
+      margin-bottom: 2.5rem;
+    }
+
+    .brand-icon {
+      width: 72px;
+      height: 72px;
+      margin: 0 auto 1rem;
+      background: linear-gradient(135deg, rgba(239,35,60,0.2), rgba(239,35,60,0.05));
+      border: 1px solid rgba(239,35,60,0.3);
+      border-radius: 20px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 2rem;
+      box-shadow: 0 0 40px rgba(239,35,60,0.15);
+    }
+
+    .brand h1 {
+      font-size: 1.6rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      color: var(--text-primary);
+    }
+
+    .brand p {
+      font-size: 0.875rem;
+      color: var(--text-muted);
+      margin-top: 0.35rem;
+    }
+
+    /* Card principal */
+    .auth-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 2rem;
+      backdrop-filter: blur(20px);
+      box-shadow:
+        0 25px 50px rgba(0,0,0,0.5),
+        0 0 0 1px rgba(255,255,255,0.03) inset;
+    }
+
+    /* Tabs login/registro */
+    .auth-tabs {
+      display: flex;
+      background: rgba(0,0,0,0.3);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 4px;
+      margin-bottom: 1.75rem;
+    }
+
+    .auth-tab {
+      flex: 1;
+      padding: 0.6rem;
+      text-align: center;
+      font-size: 0.875rem;
+      font-weight: 500;
+      color: var(--text-muted);
+      cursor: pointer;
+      border-radius: 9px;
+      border: none;
+      background: transparent;
+      transition: all 0.2s ease;
+    }
+
+    .auth-tab.active {
+      background: var(--red-primary);
+      color: #fff;
+      box-shadow: 0 4px 15px var(--red-glow);
+    }
+
+    /* Paneles */
+    .auth-panel { display: none; }
+    .auth-panel.active { display: block; }
+
+    /* Formulario */
+    .form-group {
+      margin-bottom: 1.1rem;
+    }
+
+    label {
+      display: block;
+      font-size: 0.8rem;
+      font-weight: 500;
+      color: var(--text-subtle);
+      margin-bottom: 0.45rem;
+      letter-spacing: 0.02em;
+      text-transform: uppercase;
+    }
+
+    .input-wrapper {
+      position: relative;
+    }
+
+    .input-icon {
+      position: absolute;
+      left: 0.85rem;
+      top: 50%;
+      transform: translateY(-50%);
+      font-size: 1rem;
+      pointer-events: none;
+      opacity: 0.5;
+    }
+
+    .form-control {
+      width: 100%;
+      padding: 0.75rem 0.875rem 0.75rem 2.5rem;
+      background: rgba(0, 0, 0, 0.3);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      color: var(--text-primary);
+      font-size: 0.9rem;
+      font-family: 'Inter', sans-serif;
+      transition: border-color 0.2s ease, box-shadow 0.2s ease;
+      outline: none;
+      -webkit-appearance: none;
+    }
+
+    .form-control:focus {
+      border-color: var(--border-focus);
+      box-shadow: 0 0 0 3px var(--red-glow);
+    }
+
+    .form-control::placeholder { color: var(--text-muted); }
+
+    .form-control.error {
+      border-color: var(--error);
+      box-shadow: 0 0 0 3px rgba(244, 63, 94, 0.15);
+    }
+
+    /* Toggle contraseña */
+    .toggle-password {
+      position: absolute;
+      right: 0.85rem;
+      top: 50%;
+      transform: translateY(-50%);
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      cursor: pointer;
+      font-size: 1rem;
+      padding: 0;
+      transition: color 0.2s;
+    }
+
+    .toggle-password:hover { color: var(--text-subtle); }
+
+    /* Barra de fortaleza de contraseña */
+    .password-strength {
+      margin-top: 0.5rem;
+      height: 3px;
+      background: rgba(255,255,255,0.06);
+      border-radius: 2px;
+      overflow: hidden;
+      transition: all 0.3s ease;
+    }
+
+    .strength-bar {
+      height: 100%;
+      width: 0%;
+      border-radius: 2px;
+      transition: width 0.4s ease, background 0.4s ease;
+    }
+
+    /* Botón principal */
+    .btn-auth {
+      width: 100%;
+      padding: 0.85rem;
+      background: linear-gradient(135deg, var(--red-primary), #c71729);
+      border: none;
+      border-radius: 10px;
+      color: #fff;
+      font-size: 0.95rem;
+      font-weight: 600;
+      font-family: 'Inter', sans-serif;
+      cursor: pointer;
+      margin-top: 0.5rem;
+      transition: all 0.2s ease;
+      box-shadow: 0 4px 20px var(--red-glow);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+    }
+
+    .btn-auth:hover {
+      background: linear-gradient(135deg, #ff2c45, var(--red-primary));
+      box-shadow: 0 6px 25px rgba(239,35,60,0.4);
+      transform: translateY(-1px);
+    }
+
+    .btn-auth:active { transform: translateY(0); }
+
+    .btn-auth:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    .btn-auth .spinner {
+      width: 18px;
+      height: 18px;
+      border: 2px solid rgba(255,255,255,0.3);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      display: none;
+    }
+
+    .btn-auth.loading .spinner { display: block; }
+    .btn-auth.loading .btn-text { display: none; }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Alerta de estado */
+    .auth-alert {
+      padding: 0.75rem 1rem;
+      border-radius: 10px;
+      font-size: 0.85rem;
+      margin-bottom: 1.1rem;
+      display: none;
+      align-items: flex-start;
+      gap: 0.6rem;
+      line-height: 1.4;
+    }
+
+    .auth-alert.show { display: flex; }
+
+    .auth-alert.success {
+      background: var(--success-glow);
+      border: 1px solid rgba(16,185,129,0.3);
+      color: #34d399;
+    }
+
+    .auth-alert.error {
+      background: rgba(244,63,94,0.1);
+      border: 1px solid rgba(244,63,94,0.3);
+      color: #fb7185;
+    }
+
+    /* Separador */
+    .divider {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      margin: 1.5rem 0;
+      color: var(--text-muted);
+      font-size: 0.8rem;
+    }
+
+    .divider::before, .divider::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: var(--border);
+    }
+
+    /* Info de seguridad */
+    .security-info {
+      margin-top: 1.5rem;
+      padding: 0.875rem;
+      background: rgba(255,255,255,0.02);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      display: flex;
+      align-items: flex-start;
+      gap: 0.6rem;
+    }
+
+    .security-info p {
+      font-size: 0.78rem;
+      color: var(--text-muted);
+      line-height: 1.5;
+    }
+
+    /* Footer */
+    .auth-footer {
+      text-align: center;
+      margin-top: 1.5rem;
+      font-size: 0.78rem;
+      color: var(--text-muted);
+    }
+
+    /* Toast de notificaciones */
+    .toast-container {
+      position: fixed;
+      bottom: 1.5rem;
+      right: 1.5rem;
+      z-index: 9999;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+
+    .toast {
+      padding: 0.75rem 1.1rem;
+      border-radius: 10px;
+      font-size: 0.875rem;
+      font-weight: 500;
+      color: #fff;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.4);
+      animation: slideInRight 0.3s ease;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .toast.success { background: linear-gradient(135deg, #10b981, #059669); }
+    .toast.error   { background: linear-gradient(135deg, #f43f5e, #e11d48); }
+
+    @keyframes slideInRight {
+      from { opacity: 0; transform: translateX(30px); }
+      to   { opacity: 1; transform: translateX(0); }
+    }
+  </style>
+</head>
+<body>
+  <div class="page-wrapper">
+    <div class="auth-container">
+
+      <!-- Branding -->
+      <div class="brand">
+        <div class="brand-icon">🚑</div>
+        <h1>QR Emergencias</h1>
+        <p>Plataforma segura de gestión de fichas médicas</p>
+      </div>
+
+      <!-- Card de autenticación -->
+      <div class="auth-card">
+
+        <!-- Tabs -->
+        <div class="auth-tabs" role="tablist">
+          <button class="auth-tab active" id="tabLogin" onclick="switchTab('login')" role="tab" aria-selected="true">
+            🔑 Iniciar Sesión
+          </button>
+          <button class="auth-tab" id="tabRegister" onclick="switchTab('register')" role="tab" aria-selected="false">
+            ✨ Crear Cuenta
+          </button>
+        </div>
+
+        <!-- Alerta global -->
+        <div class="auth-alert" id="authAlert" role="alert"></div>
+
+        <!-- ============================================
+             PANEL: LOGIN
+             ============================================ -->
+        <div class="auth-panel active" id="panelLogin">
+          <form id="loginForm" novalidate>
+
+            <div class="form-group">
+              <label for="loginEmail">Correo Electrónico</label>
+              <div class="input-wrapper">
+                <span class="input-icon">✉️</span>
+                <input
+                  type="email"
+                  id="loginEmail"
+                  class="form-control"
+                  placeholder="tu@correo.com"
+                  autocomplete="email"
+                  required
+                >
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label for="loginPassword">Contraseña</label>
+              <div class="input-wrapper">
+                <span class="input-icon">🔒</span>
+                <input
+                  type="password"
+                  id="loginPassword"
+                  class="form-control"
+                  placeholder="Tu contraseña segura"
+                  autocomplete="current-password"
+                  required
+                >
+                <button type="button" class="toggle-password" onclick="togglePwd('loginPassword', this)" aria-label="Mostrar contraseña">👁️</button>
+              </div>
+            </div>
+
+            <button type="submit" class="btn-auth" id="btnLogin">
+              <div class="spinner"></div>
+              <span class="btn-text">🔐 Ingresar al Sistema</span>
+            </button>
+          </form>
+        </div>
+
+        <!-- ============================================
+             PANEL: REGISTRO
+             ============================================ -->
+        <div class="auth-panel" id="panelRegister">
+          <form id="registerForm" novalidate>
+
+            <div class="form-group">
+              <label for="regFullName">Nombre Completo</label>
+              <div class="input-wrapper">
+                <span class="input-icon">👤</span>
+                <input
+                  type="text"
+                  id="regFullName"
+                  class="form-control"
+                  placeholder="Ej: Ana González Rivas"
+                  autocomplete="name"
+                  required
+                >
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label for="regEmail">Correo Electrónico</label>
+              <div class="input-wrapper">
+                <span class="input-icon">✉️</span>
+                <input
+                  type="email"
+                  id="regEmail"
+                  class="form-control"
+                  placeholder="tu@correo.com"
+                  autocomplete="email"
+                  required
+                >
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label for="regPassword">Contraseña (mín. 8 caracteres)</label>
+              <div class="input-wrapper">
+                <span class="input-icon">🔒</span>
+                <input
+                  type="password"
+                  id="regPassword"
+                  class="form-control"
+                  placeholder="Crea una contraseña segura"
+                  autocomplete="new-password"
+                  required
+                  minlength="8"
+                >
+                <button type="button" class="toggle-password" onclick="togglePwd('regPassword', this)" aria-label="Mostrar contraseña">👁️</button>
+              </div>
+              <div class="password-strength">
+                <div class="strength-bar" id="strengthBar"></div>
+              </div>
+            </div>
+
+            <button type="submit" class="btn-auth" id="btnRegister">
+              <div class="spinner"></div>
+              <span class="btn-text">✨ Crear mi Cuenta</span>
+            </button>
+          </form>
+        </div>
+
+        <div class="divider">acceso protegido con JWT</div>
+
+        <!-- Información de seguridad -->
+        <div class="security-info">
+          <span style="font-size: 1.1rem; flex-shrink: 0;">🛡️</span>
+          <p>
+            La sesión dura <strong style="color: var(--text-subtle);">24 horas</strong>. Tu contraseña se almacena cifrada con <strong style="color: var(--text-subtle);">bcrypt (12 rondas)</strong>. Los QR de emergencia son accesibles sin autenticación para paramédicos.
+          </p>
+        </div>
+      </div>
+
+      <div class="auth-footer">
+        Sistema QR Emergencias &mdash; Acceso cifrado con JWT
+      </div>
+    </div>
+  </div>
+
+  <!-- Contenedor de toasts -->
+  <div class="toast-container" id="toastContainer"></div>
+
+  <script>
+    // ==========================================
+    // Gestión de sesión JWT
+    // ==========================================
+    const AUTH_KEY = 'qr_em_token';
+    const USER_KEY = 'qr_em_user';
+
+    function getToken() { return localStorage.getItem(AUTH_KEY); }
+    function getUser()  { return JSON.parse(localStorage.getItem(USER_KEY) || 'null'); }
+
+    function saveSession(token, user) {
+      localStorage.setItem(AUTH_KEY, token);
+      localStorage.setItem(USER_KEY, JSON.stringify(user));
+    }
+
+    function clearSession() {
+      localStorage.removeItem(AUTH_KEY);
+      localStorage.removeItem(USER_KEY);
+    }
+
+    // Si ya hay sesión válida, redirigir al dashboard
+    async function checkExistingSession() {
+      const token = getToken();
+      if (!token) return;
+
+      try {
+        const res = await fetch('/api/auth/verify', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token })
+        });
+        const data = await res.json();
+
+        if (data.valid) {
+          window.location.replace('/dashboard.html');
+        } else {
+          clearSession();
+        }
+      } catch (e) {
+        clearSession();
+      }
+    }
+
+    checkExistingSession();
+
+    // ==========================================
+    // UI: Tabs login / registro
+    // ==========================================
+    function switchTab(tab) {
+      const isLogin = tab === 'login';
+      document.getElementById('tabLogin').classList.toggle('active', isLogin);
+      document.getElementById('tabRegister').classList.toggle('active', !isLogin);
+      document.getElementById('panelLogin').classList.toggle('active', isLogin);
+      document.getElementById('panelRegister').classList.toggle('active', !isLogin);
+      hideAlert();
+    }
+
+    // ==========================================
+    // UI: Mostrar/ocultar contraseña
+    // ==========================================
+    function togglePwd(fieldId, btn) {
+      const field = document.getElementById(fieldId);
+      const isHidden = field.type === 'password';
+      field.type = isHidden ? 'text' : 'password';
+      btn.textContent = isHidden ? '🙈' : '👁️';
+    }
+
+    // ==========================================
+    // UI: Fortaleza de contraseña
+    // ==========================================
+    document.getElementById('regPassword').addEventListener('input', function() {
+      const val = this.value;
+      const bar = document.getElementById('strengthBar');
+      let strength = 0;
+      if (val.length >= 8) strength++;
+      if (/[A-Z]/.test(val)) strength++;
+      if (/[0-9]/.test(val)) strength++;
+      if (/[^A-Za-z0-9]/.test(val)) strength++;
+
+      const colors = ['#ef233c', '#f59e0b', '#3b82f6', '#10b981'];
+      const widths  = ['25%', '50%', '75%', '100%'];
+      bar.style.width = val ? widths[strength - 1] || '10%' : '0%';
+      bar.style.background = val ? colors[strength - 1] || '#ef233c' : 'transparent';
+    });
+
+    // ==========================================
+    // UI: Alertas
+    // ==========================================
+    function showAlert(msg, type = 'error') {
+      const el = document.getElementById('authAlert');
+      const icon = type === 'success' ? '✅' : '⚠️';
+      el.innerHTML = `<span>${icon}</span><span>${msg}</span>`;
+      el.className = `auth-alert show ${type}`;
+    }
+
+    function hideAlert() {
+      document.getElementById('authAlert').className = 'auth-alert';
+    }
+
+    // ==========================================
+    // UI: Toasts
+    // ==========================================
+    function showToast(msg, type = 'success') {
+      const container = document.getElementById('toastContainer');
+      const toast = document.createElement('div');
+      const icon = type === 'success' ? '✅' : '❌';
+      toast.className = `toast ${type}`;
+      toast.innerHTML = `<span>${icon}</span><span>${msg}</span>`;
+      container.appendChild(toast);
+      setTimeout(() => toast.remove(), 3500);
+    }
+
+    // ==========================================
+    // Estado de botón cargando
+    // ==========================================
+    function setLoading(btnId, isLoading) {
+      const btn = document.getElementById(btnId);
+      btn.disabled = isLoading;
+      btn.classList.toggle('loading', isLoading);
+    }
+
+    // ==========================================
+    // FORMULARIO: Login
+    // ==========================================
+    document.getElementById('loginForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      hideAlert();
+
+      const email    = document.getElementById('loginEmail').value.trim();
+      const password = document.getElementById('loginPassword').value;
+
+      if (!email || !password) {
+        return showAlert('Completa todos los campos para iniciar sesión.');
+      }
+
+      setLoading('btnLogin', true);
+
+      try {
+        const res = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password })
+        });
+
+        const data = await res.json();
+
+        if (!res.ok) {
+          showAlert(data.error || 'Credenciales inválidas. Verifica e intenta de nuevo.');
+          return;
+        }
+
+        saveSession(data.token, data.user);
+        showAlert(`¡Bienvenido, ${data.user.fullName}! Redirigiendo...`, 'success');
+
+        setTimeout(() => window.location.replace('/dashboard.html'), 1000);
+
+      } catch (err) {
+        showAlert('Error de conexión con el servidor. Intenta de nuevo.');
+      } finally {
+        setLoading('btnLogin', false);
+      }
+    });
+
+    // ==========================================
+    // FORMULARIO: Registro
+    // ==========================================
+    document.getElementById('registerForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      hideAlert();
+
+      const fullName = document.getElementById('regFullName').value.trim();
+      const email    = document.getElementById('regEmail').value.trim();
+      const password = document.getElementById('regPassword').value;
+
+      if (!fullName || !email || !password) {
+        return showAlert('Completa todos los campos para registrarte.');
+      }
+
+      if (password.length < 8) {
+        return showAlert('La contraseña debe tener al menos 8 caracteres.');
+      }
+
+      setLoading('btnRegister', true);
+
+      try {
+        const res = await fetch('/api/auth/register', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password, fullName })
+        });
+
+        const data = await res.json();
+
+        if (!res.ok) {
+          showAlert(data.error || 'No se pudo completar el registro.');
+          return;
+        }
+
+        showAlert('¡Cuenta creada con éxito! Inicia sesión a continuación.', 'success');
+        document.getElementById('registerForm').reset();
+        document.getElementById('strengthBar').style.width = '0%';
+
+        setTimeout(() => {
+          switchTab('login');
+          document.getElementById('loginEmail').value = email;
+        }, 1500);
+
+      } catch (err) {
+        showAlert('Error de conexión con el servidor. Intenta de nuevo.');
+      } finally {
+        setLoading('btnRegister', false);
+      }
+    });
+  </script>
+</body>
+</html>

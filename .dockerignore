@@ -5,8 +5,8 @@ npm-debug.log
 .env
 .env.*
 README.md
-Dockerfile
-.dockerignore
 .github
+test
 tests
 coverage
+.nyc_output

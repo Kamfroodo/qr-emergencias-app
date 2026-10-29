@@ -1,5 +1,6 @@
 # Dependencias
 node_modules/
+public/js/dashboard.bundle.js
 
 # Entorno y credenciales
 .env

@@ -7,7 +7,41 @@
  * - Visualización, descarga e impresión de códigos QR
  */
 
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
+  // ==========================================
+  // 🔒 Verificación de sesión JWT
+  // ==========================================
+  await Auth.requireAuth();
+
+  // Mostrar info del usuario autenticado en el navbar
+  const user = Auth.getUser();
+  if (user) {
+    const userInfo = document.getElementById('userInfo');
+    const userAvatar = document.getElementById('userAvatar');
+    const userName = document.getElementById('userName');
+    if (userInfo) {
+      userInfo.style.display = 'flex';
+      const initials = user.fullName
+        ? user.fullName.split(' ').map(n => n[0]).slice(0, 2).join('').toUpperCase()
+        : user.email[0].toUpperCase();
+      if (userAvatar) userAvatar.textContent = initials;
+      if (userName) {
+        userName.textContent = user.fullName || user.email;
+        userName.style.display = 'block';
+      }
+    }
+  }
+
+  // Botón logout
+  const btnLogout = document.getElementById('btnLogout');
+  if (btnLogout) {
+    btnLogout.addEventListener('click', () => {
+      if (confirm('¿Cerrar sesión? Volverás a la pantalla de acceso.')) {
+        Auth.logout();
+      }
+    });
+  }
+
   // Estado local
   let profiles = [];
   let currentEditingId = null;
@@ -378,9 +412,9 @@ document.addEventListener('DOMContentLoaded', () => {
       const url = isEdit ? `/api/profiles/${encodeURIComponent(currentEditingId)}` : '/api/profiles';
       const method = isEdit ? 'PUT' : 'POST';
 
-      const res = await fetch(url, {
+      // 🔒 Auth.fetch() agrega automáticamente el header Authorization: Bearer <token>
+      const res = await Auth.fetch(url, {
         method,
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
 
@@ -409,7 +443,8 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     try {
-      const res = await fetch(`/api/profiles/${encodeURIComponent(id)}`, {
+      // 🔒 Requiere autenticación JWT
+      const res = await Auth.fetch(`/api/profiles/${encodeURIComponent(id)}`, {
         method: 'DELETE'
       });
 
@@ -427,9 +462,10 @@ document.addEventListener('DOMContentLoaded', () => {
   // ==========================================
   async function toggleProfileStatus(id) {
     try {
-      const res = await fetch(`/api/profiles/${encodeURIComponent(id)}/status`, {
+      // 🔒 Requiere autenticación JWT
+      const res = await Auth.fetch(`/api/profiles/${encodeURIComponent(id)}/status`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' }
+        body: JSON.stringify({})
       });
 
       if (!res.ok) throw new Error('No se pudo alternar el estado de la ficha');
@@ -452,7 +488,8 @@ document.addEventListener('DOMContentLoaded', () => {
       qrTargetUrl.textContent = '...';
       qrModal.classList.add('active');
 
-      const res = await fetch(`/api/profiles/${encodeURIComponent(id)}/qr`);
+      // 🔒 Requiere autenticación JWT
+      const res = await Auth.fetch(`/api/profiles/${encodeURIComponent(id)}/qr`);
       if (!res.ok) throw new Error('No se pudo generar el código QR');
 
       const data = await res.json();

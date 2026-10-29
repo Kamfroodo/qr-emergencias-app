@@ -3,6 +3,34 @@
 -- Proyecto: QR Emergencias Médicas
 -- =========================================================================
 
+-- =========================================================================
+-- TABLA: users (Gestores de perfiles médicos con autenticación JWT)
+-- =========================================================================
+CREATE TABLE IF NOT EXISTS public.users (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    email TEXT UNIQUE NOT NULL,
+    password_hash TEXT NOT NULL,       -- bcrypt con 12 rondas, NUNCA texto plano
+    full_name TEXT NOT NULL,
+    role TEXT DEFAULT 'user',          -- 'user' | 'admin'
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Índice único en email para búsquedas rápidas de login
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON public.users (email);
+
+-- Habilitar RLS en tabla de usuarios
+ALTER TABLE public.users ENABLE ROW LEVEL SECURITY;
+
+-- El backend accede a estas tablas con service_role. No habilitar acceso directo
+-- desde anon/authenticated: la API pública de emergencias filtra los campos.
+DROP POLICY IF EXISTS "Backend puede insertar usuarios" ON public.users;
+DROP POLICY IF EXISTS "Usuario puede leer su propio perfil" ON public.users;
+DROP POLICY IF EXISTS "Usuario puede actualizarse" ON public.users;
+REVOKE ALL ON TABLE public.users FROM PUBLIC, anon, authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.users TO service_role;
+
+-- =========================================================================
 -- 1. Crear la tabla de perfiles de emergencia
 CREATE TABLE IF NOT EXISTS public.profiles (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -35,29 +63,14 @@ CREATE INDEX IF NOT EXISTS idx_profiles_is_active ON public.profiles (is_active)
 -- 3. Habilitar Seguridad por Fila (Row Level Security - RLS)
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 
--- 4. Política de Lectura Pública (Cualquiera con el QR/token puede leer perfiles activos)
-CREATE POLICY "Permitir lectura publica de perfiles activos" 
-ON public.profiles 
-FOR SELECT 
-USING (is_active = true);
-
--- 5. Política para insertar perfiles desde la API
-CREATE POLICY "Permitir insercion desde la aplicacion" 
-ON public.profiles 
-FOR INSERT 
-WITH CHECK (true);
-
--- 6. Política para actualizar perfiles
-CREATE POLICY "Permitir actualizacion de perfiles" 
-ON public.profiles 
-FOR UPDATE 
-USING (true);
-
--- 7. Política para eliminar perfiles
-CREATE POLICY "Permitir eliminacion de perfiles" 
-ON public.profiles 
-FOR DELETE 
-USING (true);
+-- Los clientes anon/authenticated no consultan directamente la tabla. El
+-- servidor usa service_role y entrega el subconjunto público por el endpoint QR.
+DROP POLICY IF EXISTS "Permitir lectura publica de perfiles activos" ON public.profiles;
+DROP POLICY IF EXISTS "Permitir insercion desde la aplicacion" ON public.profiles;
+DROP POLICY IF EXISTS "Permitir actualizacion de perfiles" ON public.profiles;
+DROP POLICY IF EXISTS "Permitir eliminacion de perfiles" ON public.profiles;
+REVOKE ALL ON TABLE public.profiles FROM PUBLIC, anon, authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.profiles TO service_role;
 
 -- =========================================================================
 -- DATOS DE PRUEBA INICIALES (DEMO)
