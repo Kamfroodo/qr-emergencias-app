@@ -63,6 +63,27 @@ const db = require('./db');
 // ==========================================
 app.use('/api/auth', authRouter);
 
+function calculateAge(birthDate) {
+  const match = typeof birthDate === 'string' && birthDate.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return null;
+
+  const [, yearText, monthText, dayText] = match;
+  const year = Number(yearText);
+  const month = Number(monthText);
+  const day = Number(dayText);
+  const parsedDate = new Date(Date.UTC(year, month - 1, day));
+  if (parsedDate.toISOString().slice(0, 10) !== birthDate) return null;
+
+  const today = new Date().toISOString().slice(0, 10);
+  if (birthDate > today) return null;
+
+  const [currentYear, currentMonth, currentDay] = today.split('-').map(Number);
+  const age = currentYear - year - (
+    currentMonth < month || (currentMonth === month && currentDay < day) ? 1 : 0
+  );
+  return age <= 130 ? age : null;
+}
+
 // ==========================================
 // Rutas de Verificación de Salud (Health Check)
 // ==========================================
@@ -201,6 +222,16 @@ const createProfileHandler = async (req, res) => {
       });
     }
 
+    const birthDate = body.birthDate ?? body.birth_date ?? '';
+    const calculatedAge = birthDate ? calculateAge(birthDate) : null;
+    if (birthDate && calculatedAge === null) {
+      return res.status(400).json({ error: 'La fecha de nacimiento debe ser válida y no futura.' });
+    }
+    const age = birthDate ? calculatedAge : (body.age == null ? null : Number(body.age));
+    if (age !== null && (!Number.isInteger(age) || age < 0 || age > 130)) {
+      return res.status(400).json({ error: 'La edad debe ser un número entero entre 0 y 130.' });
+    }
+
     const internalId = uuidv4();
     const publicToken = uuidv4();
 
@@ -256,8 +287,8 @@ const createProfileHandler = async (req, res) => {
       public_token: publicToken,
       is_active: true,
       fullName,
-      birthDate: body.birthDate || body.birth_date || '',
-      age: body.age || null,
+      birthDate,
+      age,
       nationalId: (body.nationalId || body.national_id || '').trim(),
       bloodType,
       organDonor: Boolean(body.organDonor || body.organ_donor),
@@ -266,13 +297,13 @@ const createProfileHandler = async (req, res) => {
         name: primaryContact.name || '',
         relationship: primaryContact.relationship || '',
         phone: primaryContact.phone || '',
-        whatsapp: primaryContact.whatsapp || (primaryContact.phone ? primaryContact.phone.replace(/[^0-9]/g, '') : '')
+        whatsapp: primaryContact.phone ? primaryContact.phone.replace(/[^0-9]/g, '') : ''
       },
       secondaryContact: {
         name: secondaryContact.name || '',
         relationship: secondaryContact.relationship || '',
         phone: secondaryContact.phone || '',
-        whatsapp: secondaryContact.whatsapp || (secondaryContact.phone ? secondaryContact.phone.replace(/[^0-9]/g, '') : '')
+        whatsapp: secondaryContact.phone ? secondaryContact.phone.replace(/[^0-9]/g, '') : ''
       },
       allergies,
       conditions,
@@ -376,6 +407,21 @@ app.put('/api/profiles/:id', verifyToken, async (req, res) => {
       return res.status(400).json({ error: 'El nombre completo y el grupo sanguíneo son obligatorios.' });
     }
 
+    if (Object.hasOwn(updates, 'birthDate')) {
+      if (typeof updates.birthDate !== 'string') {
+        return res.status(400).json({ error: 'La fecha de nacimiento debe ser texto con formato AAAA-MM-DD.' });
+      }
+      if (updates.birthDate) {
+        const calculatedAge = calculateAge(updates.birthDate);
+        if (calculatedAge === null) {
+          return res.status(400).json({ error: 'La fecha de nacimiento debe ser válida y no futura.' });
+        }
+        updates.age = calculatedAge;
+      } else {
+        updates.age = null;
+      }
+    }
+
     if (Object.hasOwn(updates, 'age') && updates.age !== null) {
       const age = Number(updates.age);
       if (!Number.isInteger(age) || age < 0 || age > 130) {
@@ -388,6 +434,14 @@ app.put('/api/profiles/:id', verifyToken, async (req, res) => {
       if (Object.hasOwn(updates, field) &&
           (!updates[field] || typeof updates[field] !== 'object' || Array.isArray(updates[field]))) {
         return res.status(400).json({ error: `El campo ${field} debe ser un objeto JSON.` });
+      }
+    }
+    for (const field of ['primaryContact', 'secondaryContact']) {
+      if (Object.hasOwn(updates, field) && typeof updates[field].phone === 'string') {
+        updates[field] = {
+          ...updates[field],
+          whatsapp: updates[field].phone.replace(/[^0-9]/g, ''),
+        };
       }
     }
 
@@ -416,6 +470,52 @@ app.put('/api/profiles/:id', verifyToken, async (req, res) => {
   } catch (error) {
     console.error('Error al actualizar perfil:', error);
     res.status(500).json({ error: error.message });
+  }
+});
+
+const parseProfilePhoto = express.raw({
+  type: ['image/jpeg', 'image/png', 'image/webp'],
+  limit: '5mb',
+});
+
+function isSupportedImage(file, contentType) {
+  if (contentType === 'image/jpeg') {
+    return file.length >= 3 && file[0] === 0xff && file[1] === 0xd8 && file[2] === 0xff;
+  }
+  if (contentType === 'image/png') {
+    return file.length >= 8 && file.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+  }
+  if (contentType === 'image/webp') {
+    return file.length >= 12 &&
+      file.toString('ascii', 0, 4) === 'RIFF' &&
+      file.toString('ascii', 8, 12) === 'WEBP';
+  }
+  return false;
+}
+
+app.post('/api/profiles/:id/photo', verifyToken, (req, res, next) => {
+  parseProfilePhoto(req, res, error => {
+    if (!error) return next();
+    if (error.type === 'entity.too.large') {
+      return res.status(413).json({ error: 'La foto no puede superar 5 MB.' });
+    }
+    return res.status(400).json({ error: 'No se pudo procesar la imagen.' });
+  });
+}, async (req, res) => {
+  try {
+    const contentType = req.get('content-type')?.split(';')[0].trim().toLowerCase();
+    if (!Buffer.isBuffer(req.body) || !isSupportedImage(req.body, contentType)) {
+      return res.status(415).json({ error: 'Usa una imagen JPG, PNG o WebP válida.' });
+    }
+
+    const updated = await db.saveProfilePhoto(req.params.id, req.user.userId, req.body, contentType);
+    if (!updated) {
+      return res.status(404).json({ error: 'Perfil médico no encontrado para esta cuenta.' });
+    }
+    res.json(updated);
+  } catch (error) {
+    console.error('Error al guardar foto del perfil:', error);
+    res.status(500).json({ error: error.message || 'No se pudo guardar la foto del perfil.' });
   }
 });
 

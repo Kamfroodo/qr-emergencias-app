@@ -389,6 +389,26 @@ const openApiSpec = {
         },
       },
     },
+    '/api/profiles/{id}/photo': {
+      post: {
+        tags: ['Profiles'],
+        summary: 'Subir o reemplazar la fotografía de una ficha propia',
+        description: 'Acepta JPG, PNG o WebP de hasta 5 MB. En Supabase, el bucket de fotos debe ser público para que la imagen se vea desde la ficha QR.',
+        security: bearer,
+        parameters: pathId,
+        requestBody: {
+          required: true,
+          content: {
+            'image/jpeg': { schema: { type: 'string', format: 'binary' } },
+            'image/png': { schema: { type: 'string', format: 'binary' } },
+            'image/webp': { schema: { type: 'string', format: 'binary' } },
+          },
+        },
+        responses: {
+          ...responses([[200, 'Fotografía guardada', ref('Profile')], [401, 'Token ausente o inválido'], [404, 'Ficha no encontrada'], [413, 'Imagen supera 5 MB'], [415, 'Tipo de imagen no admitido']]),
+        },
+      },
+    },
     '/api/profiles/{id}/status': {
       patch: {
         tags: ['Profiles'],

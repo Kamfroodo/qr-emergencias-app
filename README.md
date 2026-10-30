@@ -133,6 +133,7 @@ Completa `.env` con la configuración apropiada para tu entorno:
 | `BASE_URL` | URL local, por ejemplo `http://localhost:3000` | Dominio público con HTTPS, por ejemplo `https://emergencias.tudominio.cl` |
 | `SUPABASE_URL` | URL del proyecto Supabase o vacío para modo local | URL real del proyecto |
 | `SUPABASE_SERVICE_ROLE_KEY` | Puede quedar vacía si no usas Supabase | Clave de servidor secreta de Supabase |
+| `SUPABASE_PHOTO_BUCKET` | `medical-photos` | Nombre del bucket público de fotos en Supabase Storage |
 | `JWT_SECRET` | Secreto local; no lo compartas | Secreto aleatorio de al menos 32 bytes |
 | `JWT_EXPIRES_IN` | `24h` | Duración de sesión deseada, por ejemplo `24h` |
 
@@ -157,8 +158,10 @@ El modo de memoria local es únicamente para desarrollo: los datos no persisten 
 1. Registra una cuenta desde la página de acceso.
 2. Inicia sesión para abrir el panel.
 3. Crea un perfil médico y completa los campos necesarios.
-4. Usa la opción del perfil para mostrar, descargar o imprimir su QR.
-5. La persona que escanee el QR podrá consultar la ficha mientras esté activa. Puedes pausar o eliminar el perfil desde el panel.
+4. Ingresa la fecha de nacimiento para calcular automáticamente la edad. Puedes tomar una foto con la cámara del teléfono o elegir una JPG, PNG o WebP de hasta 5 MB.
+5. Usa la opción del perfil para mostrar, descargar o imprimir su QR.
+6. La persona que escanee el QR podrá consultar la ficha mientras esté activa. Puede obtener la ubicación del teléfono y abrir WhatsApp con una alerta preescrita al contacto principal; quien asiste debe confirmar el envío dentro de WhatsApp. La aplicación web no envía mensajes automáticamente.
+7. Puedes pausar o eliminar el perfil desde el panel.
 
 Las fichas están asociadas a la cuenta que las creó. Las rutas privadas requieren el JWT de esa sesión.
 
@@ -166,8 +169,9 @@ Las fichas están asociadas a la cuenta que las creó. Las rutas privadas requie
 
 1. Crea un proyecto de Supabase.
 2. Ejecuta el contenido de `supabase_schema.sql` en el SQL Editor del proyecto.
-3. Registra tu cuenta desde la página de acceso y confirma que puedes iniciar sesión.
-4. En el SQL Editor, asigna el rol de administrador a tu cuenta usando el correo con el que te registraste:
+3. En **Storage**, crea un bucket público llamado `medical-photos` (o configura `SUPABASE_PHOTO_BUCKET` con el nombre elegido). El bucket debe aceptar JPG, PNG y WebP de hasta 5 MB. Las fotos podrán verse públicamente desde la ficha QR, igual que los otros datos de emergencia; no subas imágenes que no deban ser públicas.
+4. Registra tu cuenta desde la página de acceso y confirma que puedes iniciar sesión.
+5. En el SQL Editor, asigna el rol de administrador a tu cuenta usando el correo con el que te registraste:
 
    ```sql
    UPDATE public.users
@@ -177,8 +181,8 @@ Las fichas están asociadas a la cuenta que las creó. Las rutas privadas requie
    ```
 
    Comprueba que la consulta devuelva exactamente tu cuenta y `role = admin`. No agregues una opción para elevar roles al formulario público.
-5. Configura `SUPABASE_URL` y `SUPABASE_SERVICE_ROLE_KEY` en el entorno local o en el gestor de secretos del servidor.
-6. Reinicia la aplicación, vuelve a iniciar sesión y comprueba `GET /health`; el campo `database` debe mostrar `supabase_cloud` como modo configurado. Después, prueba el inicio de sesión o crea un perfil para confirmar que las operaciones llegan a Supabase.
+6. Configura `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` y, si corresponde, `SUPABASE_PHOTO_BUCKET` en el entorno local o en el gestor de secretos del servidor.
+7. Reinicia la aplicación, vuelve a iniciar sesión y comprueba `GET /health`; el campo `database` debe mostrar `supabase_cloud` como modo configurado. Después, prueba el inicio de sesión o crea un perfil para confirmar que las operaciones llegan a Supabase.
 
 El panel de usuarios aparece en el dashboard después de iniciar sesión como administrador. Permite consultar datos básicos de las cuentas, suspender/reactivar acceso, cambiar el rol y eliminar una cuenta. La suspensión invalida las sesiones existentes en la siguiente petición. La eliminación también borra los perfiles médicos asociados y es irreversible. No expone a los administradores las fichas médicas de otras cuentas.
 
@@ -218,6 +222,7 @@ La tabla resume las rutas principales:
 | `POST` | `/api/profiles` | JWT | Crear un perfil y generar su QR |
 | `POST` | `/api/v1/profiles` | JWT | Ruta compatible para crear perfiles |
 | `PUT` | `/api/profiles/:id` | JWT | Actualizar un perfil propio |
+| `POST` | `/api/profiles/:id/photo` | JWT | Subir una foto JPG, PNG o WebP (máximo 5 MB) al bucket de Storage configurado |
 | `PATCH` | `/api/profiles/:id/status` | JWT | Activar o pausar el QR |
 | `DELETE` | `/api/profiles/:id` | JWT | Eliminar un perfil propio |
 | `GET` | `/api/profiles/:id/qr` | JWT | Obtener la Data URL del QR o descargar PNG con `?format=png` |
@@ -244,6 +249,7 @@ El repositorio incluye `render.yaml` para crear un servicio web desde Docker. El
 3. Al configurar el Blueprint, completa los valores solicitados:
    - `SUPABASE_URL`: URL del proyecto Supabase.
    - `SUPABASE_SERVICE_ROLE_KEY`: clave secreta de servidor de ese proyecto.
+   - `SUPABASE_PHOTO_BUCKET`: nombre del bucket público de fotos, por defecto `medical-photos`.
    - `BASE_URL`: URL HTTPS que Render asigna al servicio, por ejemplo `https://qr-emergencias-app.onrender.com`.
    - `JWT_SECRET`: Render lo genera automáticamente desde `render.yaml`.
 

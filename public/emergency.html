@@ -232,8 +232,9 @@
     <!-- 7. BOTÓN PARA COMPARTIR UBICACIÓN GPS -->
     <button id="btnShareGps" type="button" style="width: 100%; background: #0f172a; color: white; border: none; font-size: 0.82rem; font-weight: 700; padding: 0.85rem; border-radius: 0.75rem; display: flex; align-items: center; justify-content: center; gap: 0.5rem; cursor: pointer; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
       <span>📍</span>
-      <span>Compartir Ubicación de Asistencia del Paciente</span>
+      <span>Obtener ubicación y alertar por WhatsApp</span>
     </button>
+    <p id="locationStatus" role="status" style="margin: -0.5rem 0 0; color: #64748b; font-size: 0.75rem; text-align: center;">La ubicación de este teléfono se incluirá en un mensaje al contacto principal. WhatsApp pedirá confirmar el envío.</p>
 
   </main>
 
@@ -334,7 +335,7 @@
         const contact = (p.emergency_contacts && p.emergency_contacts[0]) || p.primaryContact || {};
         const contactName = contact.name || 'Contacto de Emergencia';
         const contactPhone = contact.phone || '';
-        const rawWa = contact.whatsapp || contactPhone.replace(/[^0-9]/g, '');
+        const rawWa = (contact.whatsapp || contactPhone).replace(/[^0-9]/g, '');
 
         if (contactPhone) {
           document.getElementById('btnCallContact').href = 'tel:' + contactPhone;
@@ -350,6 +351,50 @@
         } else {
           document.getElementById('btnWhatsApp').style.display = 'none';
         }
+
+        const locationButton = document.getElementById('btnShareGps');
+        const locationStatus = document.getElementById('locationStatus');
+        if (!rawWa) {
+          locationButton.disabled = true;
+          locationButton.style.opacity = '0.55';
+          locationButton.style.cursor = 'not-allowed';
+          locationStatus.textContent = 'No hay un teléfono de WhatsApp registrado para el contacto principal.';
+        }
+        locationButton.addEventListener('click', () => {
+          if (!rawWa) return;
+          if (!navigator.geolocation) {
+            locationStatus.textContent = 'Este navegador no permite obtener la ubicación del teléfono.';
+            return;
+          }
+
+          const whatsappWindow = window.open('about:blank', '_blank');
+          if (whatsappWindow) whatsappWindow.opener = null;
+          locationButton.disabled = true;
+          locationStatus.textContent = 'Solicitando permiso para obtener la ubicación…';
+
+          navigator.geolocation.getCurrentPosition(
+            (position) => {
+              const mapsUrl = `https://maps.google.com/?q=${position.coords.latitude},${position.coords.longitude}`;
+              const message = `🚨 EMERGENCIA: Se solicita ayuda para ${name}. Ubicación actual: ${mapsUrl}`;
+              const whatsappUrl = `https://wa.me/${encodeURIComponent(rawWa)}?text=${encodeURIComponent(message)}`;
+              locationButton.disabled = false;
+              locationStatus.textContent = `Se preparó el mensaje para ${contactName}. Confirma el envío en WhatsApp.`;
+              if (whatsappWindow) {
+                whatsappWindow.location.href = whatsappUrl;
+              } else {
+                window.location.href = whatsappUrl;
+              }
+            },
+            (error) => {
+              if (whatsappWindow) whatsappWindow.close();
+              locationButton.disabled = false;
+              locationStatus.textContent = error.code === 1
+                ? 'Se necesita permiso de ubicación para incluir el mapa. Puedes usar el botón WhatsApp SOS sin ubicación.'
+                : 'No se pudo obtener la ubicación. Revisa el GPS e inténtalo nuevamente.';
+            },
+            { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+          );
+        });
 
         // Condiciones Críticas y Alergias (Caja Roja)
         const conditions = p.critical_conditions || p.conditions || [];
@@ -398,27 +443,6 @@
         // Audio lector Web Speech API
         setupAudioReader(name, blood, p.organDonor || p.organ_donor, allergies, conditions);
 
-        // Compartir GPS
-        document.getElementById('btnShareGps').addEventListener('click', () => {
-          if (!navigator.geolocation) {
-            alert('Geolocalización no soportada en este navegador.');
-            return;
-          }
-          navigator.geolocation.getCurrentPosition(
-            (pos) => {
-              const mapsUrl = `https://maps.google.com/?q=${pos.coords.latitude},${pos.coords.longitude}`;
-              const text = `🚨 Emergencia con ${name}. Ubicación: ${mapsUrl}`;
-              if (navigator.share) {
-                navigator.share({ title: 'Ubicación de Emergencia', text, url: mapsUrl }).catch(() => {});
-              } else {
-                navigator.clipboard.writeText(text);
-                alert('¡Enlace de ubicación copiado al portapapeles!\n' + mapsUrl);
-              }
-            },
-            (err) => alert('No se pudo obtener ubicación: ' + err.message),
-            { enableHighAccuracy: true, timeout: 8000 }
-          );
-        });
       }
 
       function setupAudioReader(name, blood, isDonor, allergies, conditions) {

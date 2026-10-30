@@ -37,6 +37,14 @@ async function postJson(path, body, token) {
   return { response, body: await response.json() };
 }
 
+function expectedAge(birthDate) {
+  const [year, month, day] = birthDate.split('-').map(Number);
+  const [currentYear, currentMonth, currentDay] = new Date().toISOString().slice(0, 10).split('-').map(Number);
+  return currentYear - year - (
+    currentMonth < month || (currentMonth === month && currentDay < day) ? 1 : 0
+  );
+}
+
 test('public emergency endpoint returns 404 for an unknown profile token', async () => {
   const token = randomUUID();
   const response = await fetch(`${baseUrl}/api/v1/emergency/${token}`);
@@ -54,6 +62,7 @@ test('PUT updates an authenticated user profile without changing its ownership o
   assert.equal(spec.openapi, '3.0.3');
   assert.ok(spec.paths['/api/profiles/{id}'].put);
   assert.deepEqual(spec.paths['/api/profiles/{id}'].put.security, [{ bearerAuth: [] }]);
+  assert.ok(spec.paths['/api/profiles/{id}/photo'].post);
 
   const swaggerResponse = await fetch(`${baseUrl}/api-docs/`);
   assert.equal(swaggerResponse.status, 200);
@@ -93,12 +102,57 @@ test('PUT updates an authenticated user profile without changing its ownership o
   const { response: createResponse, body: created } = await postJson('/api/profiles', {
     fullName: 'Original Name',
     bloodType: 'O+',
+    birthDate: '2000-01-01',
+    age: 1,
     organDonor: true,
     primaryContact: { name: 'Emergency Contact', phone: '+56912345678' },
     insurance: { company: 'Original Insurance', policyNumber: '123' },
     allergies: ['Pollen'],
   }, login.token);
   assert.equal(createResponse.status, 201);
+  assert.equal(created.age, expectedAge('2000-01-01'));
+
+  const futureBirthDate = await postJson('/api/profiles', {
+    fullName: 'Future Patient',
+    bloodType: 'O+',
+    birthDate: '2999-01-01',
+  }, login.token);
+  assert.equal(futureBirthDate.response.status, 400);
+
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/l7sAAAAASUVORK5CYII=', 'base64');
+  const unauthorizedPhoto = await fetch(`${baseUrl}/api/profiles/${created.id}/photo`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'image/png' },
+    body: png,
+  });
+  assert.equal(unauthorizedPhoto.status, 401);
+
+  const foreignPhoto = await fetch(`${baseUrl}/api/profiles/${created.id}/photo`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'image/png', Authorization: 'Bear' + 'er ' + otherLogin.token },
+    body: png,
+  });
+  assert.equal(foreignPhoto.status, 404);
+
+  const invalidPhoto = await fetch(`${baseUrl}/api/profiles/${created.id}/photo`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'image/png', ...ownerHeaders },
+    body: Buffer.from('not an image'),
+  });
+  assert.equal(invalidPhoto.status, 415);
+
+  const photoResponse = await fetch(`${baseUrl}/api/profiles/${created.id}/photo`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'image/png', ...ownerHeaders },
+    body: png,
+  });
+  assert.equal(photoResponse.status, 200);
+  const profileWithPhoto = await photoResponse.json();
+  assert.match(profileWithPhoto.photoUrl, /^data:image\/png;base64,/);
+
+  const publicProfileResponse = await fetch(`${baseUrl}/api/v1/emergency/${created.public_token}`);
+  assert.equal(publicProfileResponse.status, 200);
+  assert.match((await publicProfileResponse.json()).photo_url, /^data:image\/png;base64,/);
 
   const unauthorizedUpdate = await fetch(`${baseUrl}/api/profiles/${created.id}`, {
     method: 'PUT',
@@ -127,7 +181,7 @@ test('PUT updates an authenticated user profile without changing its ownership o
     body: JSON.stringify({
       fullName: 'Updated Name',
       age: 0,
-      primaryContact: { name: 'Updated Contact' },
+      primaryContact: { name: 'Updated Contact', phone: '+56911112222' },
       insurance: { company: 'Updated Insurance' },
       allergies: 'Latex\n  Pollen  ',
       user_id: 'another-user',
@@ -146,8 +200,8 @@ test('PUT updates an authenticated user profile without changing its ownership o
   assert.deepEqual(updated.primaryContact, {
     name: 'Updated Contact',
     relationship: '',
-    phone: '+56912345678',
-    whatsapp: '56912345678',
+    phone: '+56911112222',
+    whatsapp: '56911112222',
   });
   assert.deepEqual(updated.insurance, {
     company: 'Updated Insurance',
@@ -172,6 +226,21 @@ test('PUT updates an authenticated user profile without changing its ownership o
   const aliasUpdated = await aliasSuccessResponse.json();
   assert.equal(aliasUpdated.fullName, 'Alias Updated');
   assert.equal(aliasUpdated.organDonor, false);
+
+  const birthDateUpdate = await fetch(`${baseUrl}/api/profiles/${created.id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...ownerHeaders },
+    body: JSON.stringify({ birthDate: '2010-12-31', age: 131 }),
+  });
+  assert.equal(birthDateUpdate.status, 200);
+  assert.equal((await birthDateUpdate.json()).age, expectedAge('2010-12-31'));
+
+  const invalidBirthDateUpdate = await fetch(`${baseUrl}/api/profiles/${created.id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...ownerHeaders },
+    body: JSON.stringify({ birthDate: '2999-01-01' }),
+  });
+  assert.equal(invalidBirthDateUpdate.status, 400);
 
   const getResponse = await fetch(`${baseUrl}/api/profiles/${created.id}`, { headers: ownerHeaders });
   assert.equal(getResponse.status, 200);

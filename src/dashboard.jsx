@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 
 const emptyProfile = () => ({
@@ -20,9 +20,11 @@ const emptyProfile = () => ({
 });
 
 function toFormProfile(profile = {}) {
+  const birthDate = profile.birthDate || '';
   return {
     ...emptyProfile(),
     ...profile,
+    age: birthDate ? calculateAge(birthDate) : profile.age ?? '',
     primaryContact: { ...emptyProfile().primaryContact, ...profile.primaryContact },
     secondaryContact: { ...emptyProfile().secondaryContact, ...profile.secondaryContact },
     insurance: { ...emptyProfile().insurance, ...profile.insurance },
@@ -33,6 +35,21 @@ function listText(value) {
   return Array.isArray(value) ? value.join('\n') : value || '';
 }
 
+function calculateAge(birthDate) {
+  const match = birthDate.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return '';
+  const [, yearText, monthText, dayText] = match;
+  const year = Number(yearText);
+  const month = Number(monthText);
+  const day = Number(dayText);
+  const today = new Date().toISOString().slice(0, 10);
+  if (new Date(Date.UTC(year, month - 1, day)).toISOString().slice(0, 10) !== birthDate || birthDate > today) return '';
+  const [currentYear, currentMonth, currentDay] = today.split('-').map(Number);
+  return String(currentYear - year - (
+    currentMonth < month || (currentMonth === month && currentDay < day) ? 1 : 0
+  ));
+}
+
 function Dashboard() {
   const [profiles, setProfiles] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -40,6 +57,7 @@ function Dashboard() {
   const [search, setSearch] = useState('');
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(emptyProfile);
+  const [photoFile, setPhotoFile] = useState(null);
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState(null);
   const [qr, setQr] = useState(null);
@@ -142,6 +160,7 @@ function Dashboard() {
 
   function openCreate() {
     setForm(emptyProfile());
+    setPhotoFile(null);
     setEditing({ id: null, title: 'Nueva ficha médica' });
   }
 
@@ -154,6 +173,7 @@ function Dashboard() {
       }
       const profile = await response.json();
       setForm(toFormProfile(profile));
+      setPhotoFile(null);
       setEditing({ id: profile.id, title: 'Editar ficha médica' });
     } catch (error) {
       notify(error.message, 'error');
@@ -162,11 +182,32 @@ function Dashboard() {
 
   function updateField(event) {
     const { name, value, type, checked } = event.target;
+    if (name === 'birthDate') {
+      setForm(current => ({
+        ...current,
+        birthDate: value,
+        age: value ? calculateAge(value) : '',
+      }));
+      return;
+    }
     const [section, field] = name.split('.');
     const nextValue = type === 'checkbox' ? checked : value;
     setForm(current => field
       ? { ...current, [section]: { ...current[section], [field]: nextValue } }
       : { ...current, [name]: nextValue });
+  }
+
+  function selectPhoto(file) {
+    if (!file) return;
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+      notify('Selecciona una imagen JPG, PNG o WebP.', 'error');
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      notify('La foto no puede superar 5 MB.', 'error');
+      return;
+    }
+    setPhotoFile(file);
   }
 
   async function saveProfile(event) {
@@ -180,6 +221,7 @@ function Dashboard() {
       medications: listText(form.medications).split('\n').map(item => item.trim()).filter(Boolean),
     };
     const isEditing = Boolean(editing.id);
+    let savedProfile = null;
     try {
       const response = await Auth.fetch(
         isEditing ? `/api/profiles/${encodeURIComponent(editing.id)}` : '/api/profiles',
@@ -189,11 +231,33 @@ function Dashboard() {
         const body = await response.json().catch(() => ({}));
         throw new Error(body.error || 'No se pudo guardar el perfil.');
       }
+      savedProfile = await response.json();
+
+      if (photoFile) {
+        const photoResponse = await Auth.fetch(`/api/profiles/${encodeURIComponent(savedProfile.id)}/photo`, {
+          method: 'POST',
+          headers: { 'Content-Type': photoFile.type },
+          body: photoFile,
+        });
+        if (!photoResponse.ok) {
+          const body = await photoResponse.json().catch(() => ({}));
+          throw new Error(body.error || 'No se pudo guardar la foto.');
+        }
+      }
+
       setEditing(null);
+      setPhotoFile(null);
       notify(isEditing ? 'Perfil actualizado.' : 'Perfil creado.');
       await loadProfiles();
     } catch (error) {
-      notify(error.message, 'error');
+      if (savedProfile) {
+        setEditing(current => current ? { ...current, id: savedProfile.id } : current);
+        setForm(toFormProfile(savedProfile));
+        await loadProfiles();
+        notify(`La ficha se guardó, pero no la foto. Puedes volver a intentarlo: ${error.message}`, 'error');
+      } else {
+        notify(error.message, 'error');
+      }
     } finally {
       setSaving(false);
     }
@@ -305,10 +369,12 @@ function Dashboard() {
         <ProfileForm
           title={editing.title}
           form={form}
+          photoFile={photoFile}
           saving={saving}
           onChange={updateField}
+          onPhotoChange={selectPhoto}
           onSubmit={saveProfile}
-          onClose={() => setEditing(null)}
+          onClose={() => { setEditing(null); setPhotoFile(null); }}
         />
       )}
       {qr && (
@@ -371,7 +437,20 @@ function ProfileCard({ profile, onEdit, onDelete, onToggle, onQr }) {
   );
 }
 
-function ProfileForm({ title, form, saving, onChange, onSubmit, onClose }) {
+function ProfileForm({ title, form, photoFile, saving, onChange, onPhotoChange, onSubmit, onClose }) {
+  const cameraInput = useRef(null);
+  const galleryInput = useRef(null);
+  const [photoPreview, setPhotoPreview] = useState(form.photoUrl || '');
+  useEffect(() => {
+    if (!photoFile) {
+      setPhotoPreview(form.photoUrl || '');
+      return undefined;
+    }
+    const objectUrl = URL.createObjectURL(photoFile);
+    setPhotoPreview(objectUrl);
+    return () => URL.revokeObjectURL(objectUrl);
+  }, [photoFile, form.photoUrl]);
+
   const input = (label, name, options = {}) => (
     <Field label={label} name={name} value={name.includes('.') ? form[name.split('.')[0]][name.split('.')[1]] : form[name]} onChange={onChange} {...options} />
   );
@@ -389,9 +468,19 @@ function ProfileForm({ title, form, saving, onChange, onSubmit, onClose }) {
                 {input('Nombre completo *', 'fullName', { required: true, placeholder: 'Nombre y apellidos', full: true })}
                 {input('Documento', 'nationalId', { placeholder: 'RUT / DNI / Pasaporte' })}
                 <Field label="Grupo sanguíneo *" name="bloodType" value={form.bloodType} onChange={onChange} required select options={['O+', 'O-', 'A+', 'A-', 'B+', 'B-', 'AB+', 'AB-']} />
-                {input('Fecha de nacimiento', 'birthDate', { type: 'date' })}
-                {input('Edad', 'age', { type: 'number', min: 0, max: 130 })}
-                {input('URL de foto (opcional)', 'photoUrl', { type: 'url', placeholder: 'https://...', full: true })}
+                {input('Fecha de nacimiento', 'birthDate', { type: 'date', max: new Date().toISOString().slice(0, 10) })}
+                {input('Edad (automática)', 'age', { type: 'number', min: 0, max: 130, readOnly: true })}
+                <div className="form-group form-full">
+                  <label>Fotografía del paciente</label>
+                  {photoPreview && <img src={photoPreview} alt="Vista previa de la fotografía del paciente" style={{ width: 96, height: 96, borderRadius: '50%', objectFit: 'cover', marginBottom: '0.75rem' }} />}
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+                    <button type="button" className="btn btn-secondary" onClick={() => cameraInput.current?.click()} disabled={saving}>Tomar fotografía</button>
+                    <button type="button" className="btn btn-secondary" onClick={() => galleryInput.current?.click()} disabled={saving}>Elegir de galería</button>
+                  </div>
+                  <input ref={cameraInput} type="file" accept="image/jpeg,image/png,image/webp" capture="environment" hidden onChange={event => { onPhotoChange(event.target.files?.[0]); event.target.value = ''; }} />
+                  <input ref={galleryInput} type="file" accept="image/jpeg,image/png,image/webp" hidden onChange={event => { onPhotoChange(event.target.files?.[0]); event.target.value = ''; }} />
+                  <small>JPG, PNG o WebP; máximo 5 MB. La imagen será visible para quien consulte la ficha pública del QR.</small>
+                </div>
                 <label className="checkbox-label form-full"><input type="checkbox" name="organDonor" checked={Boolean(form.organDonor)} onChange={onChange} /><span>El paciente es donante de órganos</span></label>
               </div>
             </FormSection>
@@ -433,13 +522,13 @@ function FormSection({ title, children }) {
   return <section className="form-section"><h3>{title}</h3>{children}</section>;
 }
 
-function Field({ label, name, value, onChange, type = 'text', placeholder, required, min, max, full, textarea, select, options }) {
+function Field({ label, name, value, onChange, type = 'text', placeholder, required, min, max, readOnly, full, textarea, select, options }) {
   return (
     <div className={`form-group${full || textarea ? ' form-full' : ''}`}>
       <label htmlFor={`field-${name}`}>{label}</label>
       {textarea ? <textarea id={`field-${name}`} name={name} className="form-control" value={value} onChange={onChange} placeholder={placeholder} rows={3} /> : select ? (
         <select id={`field-${name}`} name={name} className="form-control" value={value} onChange={onChange} required={required}>{options.map(option => <option key={option} value={option}>{option}</option>)}</select>
-      ) : <input id={`field-${name}`} name={name} type={type} className="form-control" value={value ?? ''} onChange={onChange} placeholder={placeholder} required={required} min={min} max={max} />}
+      ) : <input id={`field-${name}`} name={name} type={type} className="form-control" value={value ?? ''} onChange={onChange} placeholder={placeholder} required={required} min={min} max={max} readOnly={readOnly} />}
     </div>
   );
 }

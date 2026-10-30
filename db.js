@@ -4,9 +4,9 @@
  */
 
 const { createClient } = require('@supabase/supabase-js');
-
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const profilePhotoBucket = process.env.SUPABASE_PHOTO_BUCKET || 'medical-photos';
 
 let supabase = null;
 
@@ -294,6 +294,33 @@ async function updateProfile(id, profileData, userId) {
   return localProfiles[index];
 }
 
+async function saveProfilePhoto(id, userId, file, contentType) {
+  const existing = await getProfileByIdOrToken(id, userId);
+  if (!existing) return null;
+
+  let photoUrl;
+  if (supabase) {
+    const storagePath = `${existing.id}/profile-photo`;
+    const storage = supabase.storage.from(profilePhotoBucket);
+    const { error } = await storage.upload(storagePath, file, {
+      cacheControl: '0',
+      contentType,
+      upsert: true,
+    });
+
+    if (error) {
+      console.error('[DB Error] saveProfilePhoto:', error.message);
+      throw new Error(`No se pudo guardar la foto. Verifica el bucket público "${profilePhotoBucket}" en Supabase Storage.`);
+    }
+
+    photoUrl = `${storage.getPublicUrl(storagePath).data.publicUrl}?v=${Date.now()}`;
+  } else {
+    photoUrl = `data:${contentType};base64,${file.toString('base64')}`;
+  }
+
+  return updateProfile(existing.id, { photoUrl }, userId);
+}
+
 async function deleteProfile(id, userId) {
   if (supabase) {
     let query = supabase
@@ -365,6 +392,7 @@ module.exports = {
   getProfileByIdOrToken,
   createProfile,
   updateProfile,
+  saveProfilePhoto,
   deleteProfile,
   deleteProfilesForUser,
   toggleProfileStatus,
