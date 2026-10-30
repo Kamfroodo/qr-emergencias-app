@@ -128,7 +128,7 @@ Completa `.env` con la configuración apropiada para tu entorno:
 
 | Variable | Desarrollo | Producción |
 | --- | --- | --- |
-| `PORT` | Puerto local, normalmente `3000` | Puerto del contenedor: `3000` |
+| `PORT` | Puerto local, normalmente `3000` | Render lo proporciona automáticamente (por defecto `10000`) |
 | `NODE_ENV` | `development` | `production` |
 | `BASE_URL` | URL local, por ejemplo `http://localhost:3000` | Dominio público con HTTPS, por ejemplo `https://emergencias.tudominio.cl` |
 | `SUPABASE_URL` | URL del proyecto Supabase o vacío para modo local | URL real del proyecto |
@@ -148,7 +148,7 @@ Genera un secreto JWT en vez de usar un valor de ejemplo:
 openssl rand -hex 32
 ```
 
-En producción, el servidor rechaza la configuración si falta `JWT_SECRET`, la conexión a Supabase o una `BASE_URL` HTTPS. `SUPABASE_SERVICE_ROLE_KEY` tiene privilegios elevados: mantenla solo en el entorno del servidor. Nunca publiques `.env`, incluyas sus valores en una imagen Docker ni los guardes en el repositorio.
+En producción, el servidor rechaza el arranque si falta `JWT_SECRET`, la configuración de Supabase o una `BASE_URL` HTTPS válida. `SUPABASE_SERVICE_ROLE_KEY` tiene privilegios elevados: mantenla solo en el entorno del servidor. Nunca publiques `.env`, incluyas sus valores en una imagen Docker ni los guardes en el repositorio.
 
 El modo de memoria local es únicamente para desarrollo: los datos no persisten al reiniciar y no se comparten entre instancias.
 
@@ -178,7 +178,7 @@ Las fichas están asociadas a la cuenta que las creó. Las rutas privadas requie
 
    Comprueba que la consulta devuelva exactamente tu cuenta y `role = admin`. No agregues una opción para elevar roles al formulario público.
 5. Configura `SUPABASE_URL` y `SUPABASE_SERVICE_ROLE_KEY` en el entorno local o en el gestor de secretos del servidor.
-6. Reinicia la aplicación, vuelve a iniciar sesión y comprueba `GET /health`; el campo `database` debe mostrar `supabase_cloud`.
+6. Reinicia la aplicación, vuelve a iniciar sesión y comprueba `GET /health`; el campo `database` debe mostrar `supabase_cloud` como modo configurado. Después, prueba el inicio de sesión o crea un perfil para confirmar que las operaciones llegan a Supabase.
 
 El panel de usuarios aparece en el dashboard después de iniciar sesión como administrador. Permite consultar datos básicos de las cuentas, suspender/reactivar acceso, cambiar el rol y eliminar una cuenta. La suspensión invalida las sesiones existentes en la siguiente petición. La eliminación también borra los perfiles médicos asociados y es irreversible. No expone a los administradores las fichas médicas de otras cuentas.
 
@@ -235,7 +235,26 @@ Las pruebas usan el runner integrado `node:test` y solicitudes HTTP de Node.js; 
 
 GitHub Actions ejecuta `npm ci`, compila el panel React y corre `npm test` con Node.js 22 y 24 en los eventos configurados en `.github/workflows/test.yml`.
 
-## Docker y producción
+## Despliegue en Render
+
+El repositorio incluye `render.yaml` para crear un servicio web desde Docker. El plan `starter` evita que la aplicación entre en suspensión por inactividad. Render despliega automáticamente los cambios que se integren en la rama conectada.
+
+1. En Supabase, aplica `supabase_schema.sql` al proyecto que utilizará producción y confirma que contiene los datos correctos. No uses la base de datos de desarrollo si no quieres compartir sus cuentas y perfiles.
+2. En [Render](https://render.com), crea un **Blueprint** y conecta este repositorio. Render leerá `render.yaml` en la raíz y propondrá crear el servicio web.
+3. Al configurar el Blueprint, completa los valores solicitados:
+   - `SUPABASE_URL`: URL del proyecto Supabase.
+   - `SUPABASE_SERVICE_ROLE_KEY`: clave secreta de servidor de ese proyecto.
+   - `BASE_URL`: URL HTTPS que Render asigna al servicio, por ejemplo `https://qr-emergencias-app.onrender.com`.
+   - `JWT_SECRET`: Render lo genera automáticamente desde `render.yaml`.
+
+   Si el dominio todavía no aparece al completar la configuración, crea el servicio y establece `BASE_URL` en **Environment** con la URL asignada; luego vuelve a desplegar. No configures `PORT`: Render lo proporciona (por defecto `10000`).
+4. Espera que el build Docker y el health check `/health` terminen correctamente. Abre el dominio HTTPS de Render y prueba registro, inicio de sesión, creación/edición de un perfil y su QR. `/health` debe informar `"database":"supabase_cloud"`; ese campo indica que el backend está configurado para Supabase, por lo que también debes comprobar una operación real, como iniciar sesión o guardar un perfil.
+5. Si es el primer despliegue y aún no hay una cuenta administradora, registra tu cuenta y sigue la consulta SQL de la sección [Supabase](#supabase) para asignarte el rol `admin`. No habilites la elevación de rol desde el formulario público.
+6. Si más adelante agregas un dominio propio, actualiza `BASE_URL` en Render y vuelve a desplegar. Verifica los enlaces de QR existentes y regenera o reimprime los que todavía apunten al dominio anterior.
+
+La aplicación maneja datos médicos sensibles. Antes de cargar datos reales, revisa las obligaciones legales y de privacidad aplicables, la región de alojamiento, el acceso a respaldos y las condiciones de Supabase y Render. El QR de un perfil activo permite consultar públicamente los campos de emergencia previstos por la aplicación.
+
+## Docker y producción propia
 
 La imagen compila React en una etapa de build, instala dependencias de producción desde `package-lock.json`, ejecuta Node con un usuario sin privilegios e incluye un health check. `.dockerignore` excluye `.env` y los archivos locales del contexto.
 
@@ -267,7 +286,7 @@ Para una prueba local directa, publica el puerto con `-p 3000:3000`. En un servi
 - Las fichas activas se publican mediante un QR; el enlace permite consultar datos médicos sin autenticación para facilitar la respuesta de emergencia.
 - Usa HTTPS y secretos únicos en producción. No compartas ni registres JWT o claves de Supabase.
 - Confirma que la base de datos, sus políticas de acceso, copias de seguridad y retención son adecuadas para datos sensibles.
-- El endpoint público de salud informa el estado de conexión; no sustituye la monitorización ni los respaldos.
+- El endpoint público de salud informa el modo de almacenamiento configurado; no comprueba por sí solo una consulta a la base de datos ni sustituye la monitorización o los respaldos.
 - Valida las obligaciones de privacidad y protección de datos aplicables antes de guardar información médica real.
 
 ## Licencia

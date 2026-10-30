@@ -23,6 +23,14 @@ const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '24h';
 const BCRYPT_ROUNDS = 12;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
+function databaseUnavailable(action, error) {
+  const unavailable = new Error(`Supabase no está disponible para ${action}.`);
+  unavailable.code = 'DATABASE_UNAVAILABLE';
+  unavailable.cause = error;
+  console.error(`[Auth DB] ${action}:`, error.message);
+  return unavailable;
+}
+
 // ==========================================
 // Capa de datos de usuarios
 // ==========================================
@@ -54,11 +62,7 @@ async function findUserByEmail(email) {
       .limit(1)
       .maybeSingle();
     if (error) {
-      console.error('[Auth DB] findUserByEmail:', error.message);
-      if (process.env.NODE_ENV === 'production') {
-        throw new Error('No se pudo consultar el usuario en Supabase.');
-      }
-      return localUsers.find(u => u.email === email.toLowerCase()) || null;
+      throw databaseUnavailable('consultar el usuario', error);
     }
     return data || null;
   }
@@ -74,11 +78,7 @@ async function findUserById(id) {
       .limit(1)
       .maybeSingle();
     if (error) {
-      console.error('[Auth DB] findUserById:', error.message);
-      if (process.env.NODE_ENV === 'production') {
-        throw new Error('No se pudo consultar el usuario en Supabase.');
-      }
-      return localUsers.find(u => u.id === id) || null;
+      throw databaseUnavailable('validar la cuenta', error);
     }
     return data || null;
   }
@@ -102,13 +102,7 @@ async function saveUser(user) {
       .single();
 
     if (error) {
-      console.error('[Auth DB] saveUser:', error.message);
-      if (process.env.NODE_ENV === 'production') {
-        throw new Error('No se pudo guardar el usuario en Supabase.');
-      }
-      // Intentar guardar localmente como fallback
-      localUsers.push(user);
-      return user;
+      throw databaseUnavailable('guardar la cuenta', error);
     }
     return data;
   }
@@ -349,6 +343,11 @@ router.post('/register', async (req, res) => {
     });
   } catch (error) {
     console.error('[Auth] Error en /register:', error);
+    if (error.code === 'DATABASE_UNAVAILABLE') {
+      return res.status(503).json({
+        error: 'No se pudo conectar con Supabase. Revisa la URL del proyecto y la conexión.'
+      });
+    }
     res.status(500).json({ error: 'Error interno al registrar el usuario.' });
   }
 });
@@ -415,6 +414,11 @@ router.post('/login', async (req, res) => {
     });
   } catch (error) {
     console.error('[Auth] Error en /login:', error);
+    if (error.code === 'DATABASE_UNAVAILABLE') {
+      return res.status(503).json({
+        error: 'No se pudo conectar con Supabase. Revisa la URL del proyecto y la conexión.'
+      });
+    }
     res.status(500).json({ error: 'Error interno al procesar el inicio de sesión.' });
   }
 });

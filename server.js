@@ -23,23 +23,24 @@ const app = require('./app');
 let currentServer = null;
 
 function startServer(port) {
-  const server = app.listen(port);
+  const server = app.listen(port, '0.0.0.0');
   currentServer = server;
 
   server.on('listening', () => {
     if (!process.env.BASE_URL) {
       process.env.BASE_URL = `http://localhost:${port}`;
     }
+    const publicBaseUrl = process.env.BASE_URL;
 
     console.log('\n=============================================================');
     console.log('   🚑 QR EMERGENCIAS APP - SERVICIO MÉDICO INICIADO');
     console.log('=============================================================');
     console.log(` > Entorno actual      : ${NODE_ENV}`);
     console.log(` > Puerto en escucha   : ${port}`);
-    console.log(` > Panel de Control    : http://localhost:${port}/dashboard.html`);
-    console.log(` > Ficha Demo 1 (O+)   : http://localhost:${port}/emergency.html?id=demo-123`);
-    console.log(` > Ficha Demo 2 (A-)   : http://localhost:${port}/emergency.html?id=demo-456`);
-    console.log(` > Health Check        : http://localhost:${port}/health`);
+    console.log(` > Panel de Control    : ${publicBaseUrl}/dashboard.html`);
+    console.log(` > Ficha Demo 1 (O+)   : ${publicBaseUrl}/emergency.html?id=demo-123`);
+    console.log(` > Ficha Demo 2 (A-)   : ${publicBaseUrl}/emergency.html?id=demo-456`);
+    console.log(` > Health Check        : ${publicBaseUrl}/health`);
     console.log('=============================================================\n');
   });
 
