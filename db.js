@@ -315,6 +315,21 @@ async function deleteProfile(id, userId) {
   return localProfiles.length < initLen;
 }
 
+async function deleteProfilesForUser(userId) {
+  if (supabase) {
+    const { error } = await supabase
+      .from('profiles')
+      .delete()
+      .eq('user_id', userId);
+    if (error) {
+      console.error('[DB Error] deleteProfilesForUser:', error.message);
+      throw new Error('No se pudieron eliminar los perfiles asociados al usuario.');
+    }
+    return;
+  }
+  localProfiles = localProfiles.filter(profile => profile.user_id !== userId);
+}
+
 async function toggleProfileStatus(id, explicitStatus, userId) {
   const existing = await getProfileByIdOrToken(id, userId);
   if (!existing) return null;
@@ -351,6 +366,7 @@ module.exports = {
   createProfile,
   updateProfile,
   deleteProfile,
+  deleteProfilesForUser,
   toggleProfileStatus,
   isSupabaseConnected
 };

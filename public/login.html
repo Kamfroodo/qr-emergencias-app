@@ -399,10 +399,10 @@
 
         <!-- Tabs -->
         <div class="auth-tabs" role="tablist">
-          <button class="auth-tab active" id="tabLogin" onclick="switchTab('login')" role="tab" aria-selected="true">
+          <button class="auth-tab active" id="tabLogin" data-auth-tab="login" role="tab" aria-selected="true">
             🔑 Iniciar Sesión
           </button>
-          <button class="auth-tab" id="tabRegister" onclick="switchTab('register')" role="tab" aria-selected="false">
+          <button class="auth-tab" id="tabRegister" data-auth-tab="register" role="tab" aria-selected="false">
             ✨ Crear Cuenta
           </button>
         </div>
@@ -443,7 +443,7 @@
                   autocomplete="current-password"
                   required
                 >
-                <button type="button" class="toggle-password" onclick="togglePwd('loginPassword', this)" aria-label="Mostrar contraseña">👁️</button>
+                <button type="button" class="toggle-password" data-password-toggle="loginPassword" aria-label="Mostrar contraseña">👁️</button>
               </div>
             </div>
 
@@ -503,7 +503,7 @@
                   required
                   minlength="8"
                 >
-                <button type="button" class="toggle-password" onclick="togglePwd('regPassword', this)" aria-label="Mostrar contraseña">👁️</button>
+                <button type="button" class="toggle-password" data-password-toggle="regPassword" aria-label="Mostrar contraseña">👁️</button>
               </div>
               <div class="password-strength">
                 <div class="strength-bar" id="strengthBar"></div>
@@ -565,12 +565,17 @@
       try {
         const res = await fetch('/api/auth/verify', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ token })
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`
+          },
+          body: '{}'
         });
         const data = await res.json();
 
         if (data.valid) {
+          const currentUser = JSON.parse(localStorage.getItem(USER_KEY) || '{}');
+          saveSession(token, { ...currentUser, ...data.user });
           window.location.replace('/dashboard.html');
         } else {
           clearSession();
@@ -589,10 +594,16 @@
       const isLogin = tab === 'login';
       document.getElementById('tabLogin').classList.toggle('active', isLogin);
       document.getElementById('tabRegister').classList.toggle('active', !isLogin);
+      document.getElementById('tabLogin').setAttribute('aria-selected', String(isLogin));
+      document.getElementById('tabRegister').setAttribute('aria-selected', String(!isLogin));
       document.getElementById('panelLogin').classList.toggle('active', isLogin);
       document.getElementById('panelRegister').classList.toggle('active', !isLogin);
       hideAlert();
     }
+
+    document.querySelectorAll('[data-auth-tab]').forEach(tab => {
+      tab.addEventListener('click', () => switchTab(tab.dataset.authTab));
+    });
 
     // ==========================================
     // UI: Mostrar/ocultar contraseña
@@ -603,6 +614,10 @@
       field.type = isHidden ? 'text' : 'password';
       btn.textContent = isHidden ? '🙈' : '👁️';
     }
+
+    document.querySelectorAll('[data-password-toggle]').forEach(button => {
+      button.addEventListener('click', () => togglePwd(button.dataset.passwordToggle, button));
+    });
 
     // ==========================================
     // UI: Fortaleza de contraseña

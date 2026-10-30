@@ -42,6 +42,7 @@ const openApiSpec = {
   tags: [
     { name: 'Health', description: 'Estado del servicio' },
     { name: 'Authentication', description: 'Registro e inicio de sesión' },
+    { name: 'Administration', description: 'Gestión de cuentas, roles y acceso (solo administradores)' },
     { name: 'Emergency', description: 'Consulta pública desde el QR' },
     { name: 'Profiles', description: 'Gestión de fichas del usuario autenticado' },
   ],
@@ -87,6 +88,8 @@ const openApiSpec = {
           email: { type: 'string', format: 'email' },
           fullName: { type: 'string' },
           role: { type: 'string' },
+          isActive: { type: 'boolean' },
+          createdAt: { type: 'string', format: 'date-time' },
         },
       },
       AuthResponse: {
@@ -218,7 +221,7 @@ const openApiSpec = {
         summary: 'Iniciar sesión y obtener JWT',
         requestBody: { required: true, ...json(ref('Credentials')) },
         responses: {
-          ...responses([[200, 'Sesión iniciada', ref('AuthResponse')], [400, 'Faltan credenciales'], [401, 'Credenciales inválidas']]),
+          ...responses([[200, 'Sesión iniciada', ref('AuthResponse')], [400, 'Faltan credenciales'], [401, 'Credenciales inválidas'], [403, 'Cuenta suspendida']]),
         },
       },
     },
@@ -235,15 +238,8 @@ const openApiSpec = {
     '/api/auth/verify': {
       post: {
         tags: ['Authentication'],
-        summary: 'Verificar un token JWT',
-        requestBody: {
-          required: true,
-          ...json({
-            type: 'object',
-            required: ['token'],
-            properties: { token: { type: 'string' } },
-          }),
-        },
+        summary: 'Verificar sesión y estado de la cuenta autenticada',
+        security: bearer,
         responses: {
           ...responses([[200, 'Resultado de validación', {
             type: 'object',
@@ -252,7 +248,52 @@ const openApiSpec = {
               user: ref('User'),
               expiresAt: { type: 'string', format: 'date-time' },
             },
-          }], [400, 'Token no proporcionado']]),
+          }], [401, 'Token ausente, expirado o cuenta suspendida']]),
+        },
+      },
+    },
+    '/api/auth/admin/users': {
+      get: {
+        tags: ['Administration'],
+        summary: 'Listar usuarios sin exponer contraseñas',
+        security: bearer,
+        responses: {
+          ...responses([[200, 'Usuarios registrados', { type: 'array', items: ref('User') }], [401, 'Sesión inválida'], [403, 'Se requieren privilegios de administrador']]),
+        },
+      },
+    },
+    '/api/auth/admin/users/{id}/status': {
+      patch: {
+        tags: ['Administration'],
+        summary: 'Suspender o reactivar una cuenta',
+        security: bearer,
+        parameters: pathId,
+        requestBody: { required: true, ...json({ type: 'object', required: ['isActive'], properties: { isActive: { type: 'boolean' } } }) },
+        responses: {
+          ...responses([[200, 'Estado actualizado', ref('User')], [400, 'No se permite cambiar el estado propio'], [403, 'Se requieren privilegios de administrador'], [409, 'No se puede suspender al último administrador activo']]),
+        },
+      },
+    },
+    '/api/auth/admin/users/{id}/role': {
+      patch: {
+        tags: ['Administration'],
+        summary: 'Asignar o retirar el rol de administrador',
+        security: bearer,
+        parameters: pathId,
+        requestBody: { required: true, ...json({ type: 'object', required: ['role'], properties: { role: { type: 'string', enum: ['user', 'admin'] } } }) },
+        responses: {
+          ...responses([[200, 'Rol actualizado', ref('User')], [400, 'Rol inválido o cambio de rol propio'], [403, 'Se requieren privilegios de administrador'], [409, 'No se puede retirar el último administrador activo']]),
+        },
+      },
+    },
+    '/api/auth/admin/users/{id}': {
+      delete: {
+        tags: ['Administration'],
+        summary: 'Eliminar una cuenta y sus perfiles médicos',
+        security: bearer,
+        parameters: pathId,
+        responses: {
+          ...responses([[200, 'Cuenta y perfiles eliminados'], [400, 'No se permite eliminar la cuenta propia'], [403, 'Se requieren privilegios de administrador'], [409, 'No se puede eliminar al último administrador activo']]),
         },
       },
     },

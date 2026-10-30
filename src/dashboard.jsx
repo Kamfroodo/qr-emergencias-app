@@ -74,10 +74,12 @@ function Dashboard() {
 
       const user = Auth.getUser();
       if (user) {
+        const adminLink = document.getElementById('adminLink');
         const userInfo = document.getElementById('userInfo');
         const userAvatar = document.getElementById('userAvatar');
         const userName = document.getElementById('userName');
         const name = user.fullName || user.email || 'Usuario';
+        if (adminLink && user.role === 'admin') adminLink.style.display = 'inline-flex';
         if (userInfo) userInfo.style.display = 'flex';
         if (userAvatar) userAvatar.textContent = name.split(/\s+/).map(part => part[0]).slice(0, 2).join('').toUpperCase();
         if (userName) {

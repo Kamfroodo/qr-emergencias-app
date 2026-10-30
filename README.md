@@ -23,6 +23,7 @@ Aplicación web para crear y administrar perfiles médicos de emergencia y compa
 ## Funciones
 
 - Registro, inicio de sesión y autenticación con JWT.
+- Panel de administración para listar cuentas, suspenderlas/reactivarlas, gestionar roles y eliminar cuentas con sus perfiles.
 - Panel React para listar, buscar, crear y editar perfiles médicos.
 - Gestión de datos personales, grupo sanguíneo, contactos de emergencia, alergias, condiciones, medicamentos, seguro y notas clínicas.
 - Activación y pausa de fichas; pausar una ficha revoca el acceso público asociado a su QR.
@@ -54,6 +55,7 @@ Aplicación web para crear y administrar perfiles médicos de emergencia y compa
 ├── public/
 │   ├── css/                     # Estilos del panel y la vista de emergencia
 │   ├── js/                      # Autenticación y bundle generado de React
+│   ├── admin.html               # Panel protegido de administración de usuarios
 │   ├── dashboard.html           # Entrada del panel
 │   ├── emergency.html           # Vista pública abierta desde el QR
 │   └── login.html               # Registro e inicio de sesión
@@ -164,8 +166,21 @@ Las fichas están asociadas a la cuenta que las creó. Las rutas privadas requie
 
 1. Crea un proyecto de Supabase.
 2. Ejecuta el contenido de `supabase_schema.sql` en el SQL Editor del proyecto.
-3. Configura `SUPABASE_URL` y `SUPABASE_SERVICE_ROLE_KEY` en el entorno local o en el gestor de secretos del servidor.
-4. Reinicia la aplicación y comprueba `GET /health`; el campo `database` debe mostrar `supabase_cloud`.
+3. Registra tu cuenta desde la página de acceso y confirma que puedes iniciar sesión.
+4. En el SQL Editor, asigna el rol de administrador a tu cuenta usando el correo con el que te registraste:
+
+   ```sql
+   UPDATE public.users
+   SET role = 'admin', updated_at = NOW()
+   WHERE email = lower('TU_CORREO_DE_REGISTRO')
+   RETURNING id, email, role;
+   ```
+
+   Comprueba que la consulta devuelva exactamente tu cuenta y `role = admin`. No agregues una opción para elevar roles al formulario público.
+5. Configura `SUPABASE_URL` y `SUPABASE_SERVICE_ROLE_KEY` en el entorno local o en el gestor de secretos del servidor.
+6. Reinicia la aplicación, vuelve a iniciar sesión y comprueba `GET /health`; el campo `database` debe mostrar `supabase_cloud`.
+
+El panel de usuarios aparece en el dashboard después de iniciar sesión como administrador. Permite consultar datos básicos de las cuentas, suspender/reactivar acceso, cambiar el rol y eliminar una cuenta. La suspensión invalida las sesiones existentes en la siguiente petición. La eliminación también borra los perfiles médicos asociados y es irreversible. No expone a los administradores las fichas médicas de otras cuentas.
 
 El backend usa exclusivamente `SUPABASE_SERVICE_ROLE_KEY` para comunicarse con Supabase. No uses la clave `anon`/`publishable` ni incluyas la clave de servidor en el frontend. El esquema mantiene RLS habilitado, revoca el acceso directo de `anon` y `authenticated`, y concede operaciones de datos solo a `service_role`; las consultas públicas de emergencia pasan por el endpoint de la aplicación, que devuelve los campos previstos para emergencias. Revisa las copias de seguridad y las reglas de retención con los requisitos de privacidad aplicables.
 
@@ -192,7 +207,11 @@ La tabla resume las rutas principales:
 | `POST` | `/api/auth/register` | Público | Registrar usuario |
 | `POST` | `/api/auth/login` | Público | Iniciar sesión y obtener JWT |
 | `GET` | `/api/auth/me` | JWT | Consultar usuario autenticado |
-| `POST` | `/api/auth/verify` | Público | Validar un JWT |
+| `POST` | `/api/auth/verify` | JWT | Validar sesión y estado de la cuenta |
+| `GET` | `/api/auth/admin/users` | Admin | Listar cuentas sin datos de contraseña |
+| `PATCH` | `/api/auth/admin/users/:id/status` | Admin | Suspender o reactivar una cuenta |
+| `PATCH` | `/api/auth/admin/users/:id/role` | Admin | Asignar o retirar el rol de administrador |
+| `DELETE` | `/api/auth/admin/users/:id` | Admin | Eliminar una cuenta y sus perfiles médicos |
 | `GET` | `/api/v1/emergency/:publicToken` | Público | Consultar la información de emergencia de una ficha activa |
 | `GET` | `/api/profiles` | JWT | Listar los perfiles del usuario |
 | `GET` | `/api/profiles/:id` | JWT | Consultar un perfil propio |
@@ -212,7 +231,7 @@ npm run build:dashboard
 npm test
 ```
 
-Las pruebas usan el runner integrado `node:test` y solicitudes HTTP de Node.js; no hace falta instalar Jest ni Supertest para la cobertura actual. Comprueban el token QR inexistente, la actualización autenticada de perfiles, el aislamiento entre usuarios y la disponibilidad de Swagger.
+Las pruebas usan el runner integrado `node:test` y solicitudes HTTP de Node.js; no hace falta instalar Jest ni Supertest para la cobertura actual. Comprueban perfiles y aislamiento entre usuarios, endpoints de administración, suspensión y eliminación de cuentas, y disponibilidad de Swagger.
 
 GitHub Actions ejecuta `npm ci`, compila el panel React y corre `npm test` con Node.js 22 y 24 en los eventos configurados en `.github/workflows/test.yml`.
 

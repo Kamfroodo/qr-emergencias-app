@@ -91,8 +91,11 @@ const Auth = {
     try {
       const res = await fetch('/api/auth/verify', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token: this.getToken() })
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${this.getToken()}`
+        },
+        body: '{}'
       });
 
       const data = await res.json();
@@ -102,6 +105,8 @@ const Auth = {
         return false;
       }
 
+      const currentUser = this.getUser() || {};
+      this.saveSession(this.getToken(), { ...currentUser, ...data.user });
       return true;
     } catch {
       // En caso de error de red, permitir continuar con el token existente

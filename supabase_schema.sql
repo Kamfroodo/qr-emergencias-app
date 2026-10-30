@@ -12,9 +12,18 @@ CREATE TABLE IF NOT EXISTS public.users (
     password_hash TEXT NOT NULL,       -- bcrypt con 12 rondas, NUNCA texto plano
     full_name TEXT NOT NULL,
     role TEXT DEFAULT 'user',          -- 'user' | 'admin'
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+ALTER TABLE public.users
+    ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE;
+
+UPDATE public.users
+SET role = 'admin', updated_at = NOW()
+WHERE email = lower('camilofrancisco@protonmail.com') AND role IS DISTINCT FROM 'admin'
+RETURNING id, email, role;
 
 -- Índice único en email para búsquedas rápidas de login
 CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON public.users (email);
@@ -71,6 +80,127 @@ DROP POLICY IF EXISTS "Permitir actualizacion de perfiles" ON public.profiles;
 DROP POLICY IF EXISTS "Permitir eliminacion de perfiles" ON public.profiles;
 REVOKE ALL ON TABLE public.profiles FROM PUBLIC, anon, authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.profiles TO service_role;
+
+-- Operaciones administrativas transaccionales invocadas únicamente por el backend.
+CREATE OR REPLACE FUNCTION public.admin_set_user_status(
+    target_user_id UUID,
+    new_is_active BOOLEAN
+)
+RETURNS BOOLEAN
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+    target_role TEXT;
+BEGIN
+    IF auth.role() IS DISTINCT FROM 'service_role' THEN
+        RAISE EXCEPTION 'forbidden' USING ERRCODE = '42501';
+    END IF;
+    PERFORM pg_advisory_xact_lock(284736102);
+
+    UPDATE public.users
+    SET is_active = new_is_active, updated_at = NOW()
+    WHERE id = target_user_id
+    RETURNING role INTO target_role;
+
+    IF NOT FOUND THEN
+        RETURN FALSE;
+    END IF;
+
+    IF NOT new_is_active AND target_role = 'admin' AND NOT EXISTS (
+        SELECT 1 FROM public.users WHERE role = 'admin' AND is_active = TRUE
+    ) THEN
+        RAISE EXCEPTION 'cannot suspend the last active administrator' USING ERRCODE = 'P0001';
+    END IF;
+
+    RETURN TRUE;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.admin_set_user_role(
+    target_user_id UUID,
+    new_role TEXT
+)
+RETURNS BOOLEAN
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+    was_active BOOLEAN;
+    resulting_role TEXT;
+BEGIN
+    IF auth.role() IS DISTINCT FROM 'service_role' THEN
+        RAISE EXCEPTION 'forbidden' USING ERRCODE = '42501';
+    END IF;
+    IF new_role NOT IN ('user', 'admin') THEN
+        RAISE EXCEPTION 'invalid role' USING ERRCODE = '22023';
+    END IF;
+    PERFORM pg_advisory_xact_lock(284736102);
+
+    UPDATE public.users
+    SET role = new_role, updated_at = NOW()
+    WHERE id = target_user_id
+    RETURNING is_active, role INTO was_active, resulting_role;
+
+    IF NOT FOUND THEN
+        RETURN FALSE;
+    END IF;
+
+    IF was_active AND resulting_role <> 'admin' AND NOT EXISTS (
+        SELECT 1 FROM public.users WHERE role = 'admin' AND is_active = TRUE
+    ) THEN
+        RAISE EXCEPTION 'cannot remove the last active administrator' USING ERRCODE = 'P0001';
+    END IF;
+
+    RETURN TRUE;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.admin_delete_user(target_user_id UUID)
+RETURNS BOOLEAN
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+    target_role TEXT;
+    target_is_active BOOLEAN;
+BEGIN
+    IF auth.role() IS DISTINCT FROM 'service_role' THEN
+        RAISE EXCEPTION 'forbidden' USING ERRCODE = '42501';
+    END IF;
+    PERFORM pg_advisory_xact_lock(284736102);
+
+    SELECT role, is_active INTO target_role, target_is_active
+    FROM public.users
+    WHERE id = target_user_id
+    FOR UPDATE;
+
+    IF NOT FOUND THEN
+        RETURN FALSE;
+    END IF;
+
+    IF target_is_active AND target_role = 'admin' AND NOT EXISTS (
+        SELECT 1 FROM public.users
+        WHERE role = 'admin' AND is_active = TRUE AND id <> target_user_id
+    ) THEN
+        RAISE EXCEPTION 'cannot delete the last active administrator' USING ERRCODE = 'P0001';
+    END IF;
+
+    DELETE FROM public.profiles WHERE user_id = target_user_id::TEXT;
+    DELETE FROM public.users WHERE id = target_user_id;
+    RETURN TRUE;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.admin_set_user_status(UUID, BOOLEAN) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.admin_set_user_role(UUID, TEXT) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.admin_delete_user(UUID) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.admin_set_user_status(UUID, BOOLEAN) TO service_role;
+GRANT EXECUTE ON FUNCTION public.admin_set_user_role(UUID, TEXT) TO service_role;
+GRANT EXECUTE ON FUNCTION public.admin_delete_user(UUID) TO service_role;
 
 -- =========================================================================
 -- DATOS DE PRUEBA INICIALES (DEMO)

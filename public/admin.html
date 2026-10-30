@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Administración de cuentas de QR Emergencias.">
+  <title>Administrar usuarios · QR Emergencias</title>
+  <link rel="stylesheet" href="/css/admin.css">
+</head>
+<body>
+  <header class="admin-header">
+    <a class="brand" href="/dashboard.html">🚑 QR Emergencias</a>
+    <div class="header-actions">
+      <a class="button button-secondary" href="/dashboard.html">Volver a mis fichas</a>
+      <button class="button button-secondary" id="logoutButton" type="button">Cerrar sesión</button>
+    </div>
+  </header>
+
+  <main class="admin-main">
+    <section class="intro">
+      <p class="eyebrow">Administración de plataforma</p>
+      <h1>Usuarios</h1>
+      <p>Administra el acceso y los roles de las cuentas. Eliminar una cuenta también elimina sus fichas médicas y no se puede deshacer.</p>
+    </section>
+
+    <section class="user-panel" aria-labelledby="users-title">
+      <div class="panel-toolbar">
+        <div>
+          <h2 id="users-title">Cuentas registradas</h2>
+          <p id="userCount" class="user-count"></p>
+        </div>
+        <label class="search-label" for="userSearch">Buscar usuario
+          <input id="userSearch" type="search" placeholder="Nombre o correo">
+        </label>
+      </div>
+      <p id="statusMessage" class="status-message" role="status" aria-live="polite"></p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Usuario</th>
+              <th>Correo</th>
+              <th>Registro</th>
+              <th>Estado</th>
+              <th>Rol</th>
+              <th>Acciones</th>
+            </tr>
+          </thead>
+          <tbody id="usersTable">
+            <tr><td class="empty-state" colspan="6">Cargando usuarios…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <script src="/js/auth.js"></script>
+  <script src="/js/admin.js"></script>
+</body>
+</html>
