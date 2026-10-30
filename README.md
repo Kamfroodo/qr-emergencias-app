@@ -163,6 +163,8 @@ El modo de memoria local es únicamente para desarrollo: los datos no persisten 
 6. La persona que escanee el QR podrá consultar la ficha mientras esté activa. Puede obtener la ubicación del teléfono y abrir WhatsApp con una alerta preescrita al contacto principal; quien asiste debe confirmar el envío dentro de WhatsApp. La aplicación web no envía mensajes automáticamente.
 7. Puedes pausar o eliminar el perfil desde el panel.
 
+El panel y la ficha pública se adaptan a pantallas móviles. En el teléfono, abre el dominio público en Safari o Chrome; puedes añadirlo a la pantalla de inicio desde el menú del navegador. La captura de fotografía y la geolocalización requieren permisos del navegador y conexión HTTPS.
+
 Las fichas están asociadas a la cuenta que las creó. Las rutas privadas requieren el JWT de esa sesión.
 
 ## Supabase
