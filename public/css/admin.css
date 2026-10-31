@@ -66,10 +66,26 @@ td { font-size: .88rem; }
 .button-primary { color: #fff; background: #2e5aac; }
 .button-danger { color: #fff; background: #b42335; }
 .empty-state { padding: 2rem; color: #778399; text-align: center; }
+.profile-details { margin: 0 1.5rem 1.5rem; padding: 1.25rem; border: 1px solid #e0e6ef; border-radius: 12px; background: #fafbfd; }
+.profile-details[hidden] { display: none; }
+.profile-details h3 { margin: 1rem 0 .5rem; }
+.profile-details h3:first-child { margin-top: 0; }
+.profile-details dl { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: .75rem; margin: 0; }
+.profile-details dl > div { min-width: 0; padding: .7rem; border-radius: 8px; background: #fff; }
+.profile-details dt { color: #67738a; font-size: .75rem; font-weight: 700; }
+.profile-details dd { margin: .25rem 0 0; overflow-wrap: anywhere; white-space: pre-wrap; }
+.qr-dialog { width: min(440px, calc(100% - 2rem)); max-width: none; padding: 0; border: 1px solid #e0e6ef; border-radius: 14px; box-shadow: 0 24px 70px rgb(23 32 51 / 25%); }
+.qr-dialog::backdrop { background: rgb(15 23 42 / 55%); }
+.qr-dialog-header { display: flex; align-items: center; justify-content: space-between; gap: .75rem; padding: 1rem 1.25rem; border-bottom: 1px solid #edf0f5; }
+.qr-dialog-header h2 { font-size: 1rem; }
+.qr-dialog-content { display: grid; justify-items: center; gap: .8rem; padding: 1.25rem; }
+.qr-dialog-content img { width: min(280px, 100%); height: auto; }
+.qr-dialog-content > a { overflow-wrap: anywhere; font-size: .8rem; text-align: center; }
 
 @media (max-width: 780px) {
   .admin-header, .panel-toolbar { align-items: stretch; flex-direction: column; }
   .header-actions { justify-content: flex-start; }
   .invitation-form { grid-template-columns: 1fr; }
   .invitation-link { grid-template-columns: 1fr; }
+  .profile-details { margin-inline: .75rem; padding: .8rem; }
 }

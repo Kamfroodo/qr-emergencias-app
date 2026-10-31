@@ -232,9 +232,10 @@
     <!-- 7. BOTÓN PARA COMPARTIR UBICACIÓN GPS -->
     <button id="btnShareGps" type="button" style="width: 100%; background: #0f172a; color: white; border: none; font-size: 0.82rem; font-weight: 700; padding: 0.85rem; border-radius: 0.75rem; display: flex; align-items: center; justify-content: center; gap: 0.5rem; cursor: pointer; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
       <span>📍</span>
-      <span>Obtener ubicación y alertar por WhatsApp</span>
+      <span>Obtener ubicación para WhatsApp</span>
     </button>
-    <p id="locationStatus" role="status" style="margin: -0.5rem 0 0; color: #64748b; font-size: 0.75rem; text-align: center;">La ubicación de este teléfono se incluirá en un mensaje al contacto principal. WhatsApp pedirá confirmar el envío.</p>
+    <p id="locationStatus" role="status" style="margin: -0.5rem 0 0; color: #64748b; font-size: 0.75rem; text-align: center;">Obtén la ubicación y elige cada contacto. Confirma el envío en WhatsApp.</p>
+    <div id="locationContactActions" aria-label="Contactos para compartir la ubicación" style="display: none; flex-direction: column; gap: 0.5rem;"></div>
 
   </main>
 
@@ -332,7 +333,10 @@
         }
 
         // Contactos y Botón de llamada directa
-        const contact = (p.emergency_contacts && p.emergency_contacts[0]) || p.primaryContact || {};
+        const contacts = (Array.isArray(p.emergency_contacts) && p.emergency_contacts.length
+          ? p.emergency_contacts
+          : [p.primaryContact, p.secondaryContact]).filter(Boolean);
+        const contact = contacts[0] || {};
         const contactName = contact.name || 'Contacto de Emergencia';
         const contactPhone = contact.phone || '';
         const rawWa = (contact.whatsapp || contactPhone).replace(/[^0-9]/g, '');
@@ -354,45 +358,56 @@
 
         const locationButton = document.getElementById('btnShareGps');
         const locationStatus = document.getElementById('locationStatus');
-        if (!rawWa) {
+        const locationContactActions = document.getElementById('locationContactActions');
+        const whatsappContacts = contacts.map((entry, index) => ({
+          name: entry.name || `Contacto ${index + 1}`,
+          phone: (entry.whatsapp || entry.phone || '').replace(/[^0-9]/g, ''),
+        })).filter(entry => entry.phone)
+          .filter((entry, index, list) => list.findIndex(other => other.phone === entry.phone) === index);
+        if (!whatsappContacts.length) {
           locationButton.disabled = true;
           locationButton.style.opacity = '0.55';
           locationButton.style.cursor = 'not-allowed';
-          locationStatus.textContent = 'No hay un teléfono de WhatsApp registrado para el contacto principal.';
+          locationStatus.textContent = 'No hay teléfonos registrados para WhatsApp en los contactos de emergencia.';
         }
         locationButton.addEventListener('click', () => {
-          if (!rawWa) return;
+          if (!whatsappContacts.length) return;
           if (!navigator.geolocation) {
-            locationStatus.textContent = 'Este navegador no permite obtener la ubicación del teléfono.';
+            locationStatus.textContent = 'Este navegador no permite obtener la ubicación. Revisa los permisos o intenta desde un navegador compatible.';
             return;
           }
 
-          const whatsappWindow = window.open('about:blank', '_blank');
-          if (whatsappWindow) whatsappWindow.opener = null;
           locationButton.disabled = true;
           locationStatus.textContent = 'Solicitando permiso para obtener la ubicación…';
+          locationContactActions.style.display = 'none';
+          locationContactActions.replaceChildren();
 
           navigator.geolocation.getCurrentPosition(
             (position) => {
               const mapsUrl = `https://maps.google.com/?q=${position.coords.latitude},${position.coords.longitude}`;
               const message = `🚨 EMERGENCIA: Se solicita ayuda para ${name}. Ubicación actual: ${mapsUrl}`;
-              const whatsappUrl = `https://wa.me/${encodeURIComponent(rawWa)}?text=${encodeURIComponent(message)}`;
-              locationButton.disabled = false;
-              locationStatus.textContent = `Se preparó el mensaje para ${contactName}. Confirma el envío en WhatsApp.`;
-              if (whatsappWindow) {
-                whatsappWindow.location.href = whatsappUrl;
-              } else {
-                window.location.href = whatsappUrl;
+              for (const entry of whatsappContacts) {
+                const link = document.createElement('a');
+                link.href = `https://wa.me/${encodeURIComponent(entry.phone)}?text=${encodeURIComponent(message)}`;
+                link.target = '_blank';
+                link.rel = 'noopener noreferrer';
+                link.textContent = `Abrir WhatsApp para ${entry.name}`;
+                link.style.cssText = 'display:block;width:100%;padding:0.75rem;border-radius:0.65rem;background:#16a34a;color:#fff;text-align:center;text-decoration:none;font-size:0.85rem;font-weight:700;';
+                locationContactActions.append(link);
               }
+              locationContactActions.style.display = 'flex';
+              locationButton.disabled = false;
+              locationStatus.textContent = `Ubicación lista. Elige cada contacto; WhatsApp abrirá el mensaje para que confirmes el envío.`;
             },
             (error) => {
-              if (whatsappWindow) whatsappWindow.close();
               locationButton.disabled = false;
               locationStatus.textContent = error.code === 1
-                ? 'Se necesita permiso de ubicación para incluir el mapa. Puedes usar el botón WhatsApp SOS sin ubicación.'
-                : 'No se pudo obtener la ubicación. Revisa el GPS e inténtalo nuevamente.';
+                ? 'Se necesita permitir el acceso a la ubicación para incluir el mapa.'
+                : error.code === 3
+                  ? 'La solicitud de ubicación tardó demasiado. Activa el GPS e inténtalo nuevamente.'
+                  : 'No se pudo obtener la ubicación. Revisa el GPS y los permisos del navegador.';
             },
-            { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+            { enableHighAccuracy: true, timeout: 30000, maximumAge: 60000 }
           );
         });
 

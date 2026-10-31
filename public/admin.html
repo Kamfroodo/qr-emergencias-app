@@ -67,6 +67,31 @@
       </div>
     </section>
 
+    <section class="user-panel" aria-labelledby="medical-profiles-title">
+      <div class="panel-toolbar">
+        <div>
+          <h2 id="medical-profiles-title">Fichas médicas y códigos QR</h2>
+          <p id="medicalProfileCount" class="user-count">Acceso administrativo de solo lectura.</p>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Paciente</th>
+              <th>Cuenta propietaria</th>
+              <th>Estado del QR</th>
+              <th>Acciones</th>
+            </tr>
+          </thead>
+          <tbody id="medicalProfilesTable">
+            <tr><td class="empty-state" colspan="4">Cargando fichas médicas…</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <section id="medicalProfileDetails" class="profile-details" hidden aria-live="polite"></section>
+    </section>
+
     <section class="user-panel" aria-labelledby="users-title">
       <div class="panel-toolbar">
         <div>
@@ -97,6 +122,22 @@
       </div>
     </section>
   </main>
+
+  <dialog id="profileQrDialog" class="qr-dialog">
+    <form method="dialog" class="qr-dialog-header">
+      <h2>Código QR de emergencia</h2>
+      <button class="button button-secondary" aria-label="Cerrar">Cerrar</button>
+    </form>
+    <div class="qr-dialog-content">
+      <p id="profileQrName" class="user-name"></p>
+      <img id="profileQrImage" alt="Código QR de emergencia">
+      <a id="profileQrTarget" target="_blank" rel="noopener noreferrer"></a>
+      <div class="row-actions">
+        <button id="downloadProfileQr" class="button button-primary" type="button">Descargar PNG</button>
+        <button id="copyProfileQrLink" class="button button-secondary" type="button">Copiar enlace</button>
+      </div>
+    </div>
+  </dialog>
 
   <script src="/js/auth.js"></script>
   <script src="/js/admin.js"></script>

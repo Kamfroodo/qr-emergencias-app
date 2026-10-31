@@ -2,7 +2,7 @@
 
 Aplicación web para crear y administrar perfiles médicos de emergencia y compartir su información esencial mediante códigos QR. El titular gestiona sus perfiles desde un panel privado; una persona que escanee un QR puede consultar la ficha activa para ayudar durante una emergencia.
 
-> **Privacidad:** una ficha activa se puede consultar sin iniciar sesión mediante su enlace o código QR. Comparte el QR solo con conocimiento y consentimiento de la persona titular. No uses datos médicos reales hasta configurar y revisar la seguridad de producción, la base de datos y el cumplimiento normativo aplicable.
+> **Privacidad:** una ficha activa se puede consultar sin iniciar sesión mediante su enlace o código QR. Las cuentas administradoras también pueden consultar todas las fichas completas en modo de solo lectura y generar sus QR. Comparte el QR solo con conocimiento y consentimiento de la persona titular. No uses datos médicos reales hasta configurar y revisar la seguridad de producción, la base de datos y el cumplimiento normativo aplicable.
 
 ## Contenido
 
@@ -28,6 +28,8 @@ Aplicación web para crear y administrar perfiles médicos de emergencia y compa
 - Gestión de datos personales, grupo sanguíneo, contactos de emergencia, alergias, condiciones, medicamentos, seguro y notas clínicas.
 - Activación y pausa de fichas; pausar una ficha revoca el acceso público asociado a su QR.
 - Generación, vista, descarga e impresión de códigos QR.
+- Panel de administrador de solo lectura para consultar las fichas de todas las cuentas y generar/descargar sus QR.
+- Cada usuario puede consultar y editar solo sus propias fichas; la interfaz y los endpoints de generación/descarga de QR están reservados a administradores.
 - Vista pública para emergencias con información clínica seleccionada.
 - Persistencia en Supabase PostgreSQL; en desarrollo puede usarse almacenamiento en memoria.
 - Documentación interactiva de la API con Swagger UI.
@@ -160,7 +162,7 @@ El modo de memoria local es únicamente para desarrollo: los datos no persisten 
 3. Crea un perfil médico y completa los campos necesarios.
 4. Ingresa la fecha de nacimiento para calcular automáticamente la edad. Puedes tomar una foto con la cámara del teléfono o elegir una JPG, PNG o WebP de hasta 5 MB.
 5. Usa la opción del perfil para mostrar, descargar o imprimir su QR.
-6. La persona que escanee el QR podrá consultar la ficha mientras esté activa. Puede obtener la ubicación del teléfono y abrir WhatsApp con una alerta preescrita al contacto principal; quien asiste debe confirmar el envío dentro de WhatsApp. La aplicación web no envía mensajes automáticamente.
+6. La persona que escanee el QR podrá consultar la ficha mientras esté activa. Puede obtener la ubicación del teléfono y preparar un mensaje de WhatsApp para cada contacto registrado. Debe abrir cada contacto y confirmar el envío en WhatsApp; la aplicación web no envía mensajes automáticamente. La ubicación requiere HTTPS y permiso del navegador.
 7. Puedes pausar o eliminar el perfil desde el panel.
 
 El panel y la ficha pública se adaptan a pantallas móviles. En el teléfono, abre el dominio público en Safari o Chrome; puedes añadirlo a la pantalla de inicio desde el menú del navegador. La captura de fotografía y la geolocalización requieren permisos del navegador y conexión HTTPS.
@@ -201,7 +203,7 @@ Las fichas están asociadas a la cuenta que las creó. Las rutas privadas requie
 7. Configura `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` y, si corresponde, `SUPABASE_PHOTO_BUCKET` en el entorno local o en el gestor de secretos del servidor.
 8. Reinicia la aplicación, inicia sesión con la cuenta administradora y comprueba `GET /health`; el campo `database` debe mostrar `supabase_cloud`.
 
-El panel de administración permite generar un enlace de invitación, copiarlo y enviarlo manualmente. El enlace vence a los 7 días, solo puede aceptarse una vez y el administrador puede revocarlo o generar otro. La persona invitada establece una contraseña de al menos 12 caracteres. No se envían correos automáticamente. El panel también permite suspender/reactivar cuentas, cambiar roles y eliminar cuentas. La suspensión invalida las sesiones existentes en la siguiente petición. La eliminación borra los perfiles médicos asociados y es irreversible. No expone a los administradores las fichas médicas de otras cuentas.
+El panel de administración permite generar un enlace de invitación, copiarlo y enviarlo manualmente. El enlace vence a los 7 días, solo puede aceptarse una vez y el administrador puede revocarlo o generar otro. La persona invitada establece una contraseña de al menos 12 caracteres. No se envían correos automáticamente. El panel también permite suspender/reactivar cuentas, cambiar roles, eliminar cuentas y consultar en modo de solo lectura las fichas médicas de todas las cuentas para obtener sus QR. La suspensión invalida las sesiones existentes en la siguiente petición. La eliminación borra los perfiles médicos asociados y es irreversible.
 
 Si no ejecutas `supabase_access_control.sql`, los endpoints de invitaciones no estarán disponibles en Supabase. El backend usa exclusivamente `SUPABASE_SERVICE_ROLE_KEY`; no incluyas esa clave ni los tokens de invitación en el frontend, capturas o registros.
 
@@ -234,6 +236,9 @@ La tabla resume las rutas principales:
 | `GET` | `/api/auth/admin/invitations` | Admin | Listar invitaciones sin tokens |
 | `POST` | `/api/auth/admin/invitations` | Admin | Crear o renovar un enlace de invitación |
 | `POST` | `/api/auth/admin/invitations/:id/revoke` | Admin | Revocar una invitación |
+| `GET` | `/api/admin/profiles` | Admin | Listar resúmenes de todas las fichas |
+| `GET` | `/api/admin/profiles/:id` | Admin | Consultar una ficha médica completa (solo lectura) |
+| `GET` | `/api/admin/profiles/:id/qr` | Admin | Obtener o descargar el QR de cualquier ficha |
 | `GET` | `/api/auth/admin/users` | Admin | Listar cuentas sin datos de contraseña |
 | `PATCH` | `/api/auth/admin/users/:id/status` | Admin | Suspender o reactivar una cuenta |
 | `PATCH` | `/api/auth/admin/users/:id/role` | Admin | Asignar o retirar el rol de administrador |
@@ -247,7 +252,7 @@ La tabla resume las rutas principales:
 | `POST` | `/api/profiles/:id/photo` | JWT | Subir una foto JPG, PNG o WebP (máximo 5 MB) al bucket de Storage configurado |
 | `PATCH` | `/api/profiles/:id/status` | JWT | Activar o pausar el QR |
 | `DELETE` | `/api/profiles/:id` | JWT | Eliminar un perfil propio |
-| `GET` | `/api/profiles/:id/qr` | JWT | Obtener la Data URL del QR o descargar PNG con `?format=png` |
+| `GET` | `/api/profiles/:id/qr` | Admin | Obtener la Data URL del QR o descargar PNG con `?format=png` para una ficha propia |
 
 ## Pruebas y CI
 

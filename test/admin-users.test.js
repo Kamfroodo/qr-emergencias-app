@@ -51,6 +51,7 @@ async function login(email) {
 test('only admins can administer accounts, and account actions immediately affect sessions and profiles', async () => {
   const adminPage = await fetch(`${baseUrl}/admin.html`);
   assert.equal(adminPage.status, 200);
+  assert.match(await adminPage.text(), /Fichas médicas y códigos QR/);
   const adminStyle = await fetch(`${baseUrl}/css/admin.css`);
   assert.equal(adminStyle.status, 200);
   const adminScript = await fetch(`${baseUrl}/js/admin.js`);
@@ -70,6 +71,9 @@ test('only admins can administer accounts, and account actions immediately affec
     '/api/auth/admin/invitations/{id}/revoke',
     '/api/auth/invitation/{token}',
     '/api/auth/invitation/accept',
+    '/api/admin/profiles',
+    '/api/admin/profiles/{id}',
+    '/api/admin/profiles/{id}/qr',
   ]) {
     assert.ok(docs.paths[path]);
   }
@@ -188,10 +192,70 @@ test('only admins can administer accounts, and account actions immediately affec
 
   const createProfile = await request('/api/profiles', {
     method: 'POST',
-    body: { fullName: 'Member Emergency Profile', bloodType: 'O+' },
+    body: {
+      fullName: 'Member Emergency Profile',
+      bloodType: 'O+',
+      primaryContact: { name: 'Primary Contact', phone: '+56912345678' },
+      secondaryContact: { name: 'Secondary Contact', phone: '+56987654321' },
+      allergies: ['Pollen'],
+    },
     token: memberToken,
   });
   assert.equal(createProfile.response.status, 201);
+  assert.equal(Object.hasOwn(createProfile.body, 'qrDataUrl'), false);
+  assert.equal(Object.hasOwn(createProfile.body, 'qr_code'), false);
+
+  const emergencyPage = await fetch(`${baseUrl}/emergency.html`);
+  assert.equal(emergencyPage.status, 200);
+  const emergencyHtml = await emergencyPage.text();
+  assert.match(emergencyHtml, /locationContactActions/);
+  assert.match(emergencyHtml, /Abrir WhatsApp para/);
+  assert.match(emergencyHtml, /target = '_blank'/);
+  const emergencyProfile = await request(`/api/v1/emergency/${createProfile.body.public_token}`);
+  assert.equal(emergencyProfile.response.status, 200);
+  assert.equal(emergencyProfile.body.emergency_contacts.length, 2);
+
+  const secondProfile = await request('/api/profiles', {
+    method: 'POST',
+    body: { fullName: 'Second Member Profile', bloodType: 'A+' },
+    token: memberToken,
+  });
+  assert.equal(secondProfile.response.status, 201);
+
+  const memberProfiles = await request('/api/profiles', { token: memberToken });
+  assert.equal(memberProfiles.response.status, 200);
+  assert.equal(memberProfiles.body.length, 2);
+  assert.ok(memberProfiles.body.every(profile => profile.id === createProfile.body.id || profile.id === secondProfile.body.id));
+
+  const memberCannotListAllMedicalProfiles = await request('/api/admin/profiles', { token: memberToken });
+  assert.equal(memberCannotListAllMedicalProfiles.response.status, 403);
+  const listedMedicalProfiles = await request('/api/admin/profiles', { token: adminToken });
+  assert.equal(listedMedicalProfiles.response.status, 200);
+  assert.ok(listedMedicalProfiles.body.some(profile => profile.id === createProfile.body.id));
+  assert.ok(listedMedicalProfiles.body.some(profile => profile.id === secondProfile.body.id));
+  assert.ok(listedMedicalProfiles.body.some(profile =>
+    profile.id === createProfile.body.id && profile.ownerUserId === member.id));
+  assert.ok(listedMedicalProfiles.body.every(profile => !Object.hasOwn(profile, 'allergies')));
+  const adminProfile = await request(`/api/admin/profiles/${createProfile.body.id}`, { token: adminToken });
+  assert.equal(adminProfile.response.status, 200);
+  assert.deepEqual(adminProfile.body.allergies, ['Pollen']);
+  const memberCannotViewMedicalProfile = await request(`/api/admin/profiles/${createProfile.body.id}`, { token: memberToken });
+  assert.equal(memberCannotViewMedicalProfile.response.status, 403);
+
+  const adminQr = await request(`/api/admin/profiles/${createProfile.body.id}/qr`, { token: adminToken });
+  assert.equal(adminQr.response.status, 200);
+  assert.match(adminQr.body.targetUrl, /emergency\.html\?token=/);
+  assert.match(adminQr.body.qrDataUrl, /^data:image\/png;base64,/);
+  const memberCannotGenerateOwnQr = await request(`/api/profiles/${createProfile.body.id}/qr`, { token: memberToken });
+  assert.equal(memberCannotGenerateOwnQr.response.status, 403);
+  const memberCannotGenerateAdminQr = await request(`/api/admin/profiles/${createProfile.body.id}/qr`, { token: memberToken });
+  assert.equal(memberCannotGenerateAdminQr.response.status, 403);
+  const downloadableQr = await fetch(`${baseUrl}/api/admin/profiles/${createProfile.body.id}/qr?format=png`, {
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  assert.equal(downloadableQr.status, 200);
+  assert.match(downloadableQr.headers.get('content-type'), /image\/png/);
+  assert.ok((await downloadableQr.arrayBuffer()).byteLength > 100);
 
   const suspended = await request(`/api/auth/admin/users/${member.id}/status`, {
     method: 'PATCH',

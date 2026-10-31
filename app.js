@@ -63,6 +63,13 @@ const db = require('./db');
 // ==========================================
 app.use('/api/auth', authRouter);
 
+function requireAdmin(req, res, next) {
+  if (req.user?.role !== 'admin') {
+    return res.status(403).json({ error: 'Se requieren privilegios de administrador.' });
+  }
+  next();
+}
+
 function calculateAge(birthDate) {
   const match = typeof birthDate === 'string' && birthDate.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (!match) return null;
@@ -188,6 +195,34 @@ app.get('/api/profiles', verifyToken, async (req, res) => {
   }
 });
 
+app.get('/api/admin/profiles', verifyToken, requireAdmin, async (req, res) => {
+  try {
+    const profiles = await db.getAllProfiles();
+    res.json(profiles.map(profile => ({
+      id: profile.id,
+      ownerUserId: profile.user_id,
+      fullName: profile.fullName,
+      bloodType: profile.bloodType,
+      isActive: profile.is_active !== false,
+      updatedAt: profile.updatedAt,
+    })));
+  } catch (error) {
+    console.error('Error al listar fichas para administración:', error);
+    res.status(500).json({ error: 'No se pudieron cargar las fichas médicas.' });
+  }
+});
+
+app.get('/api/admin/profiles/:id', verifyToken, requireAdmin, async (req, res) => {
+  try {
+    const profile = await db.getProfileByIdOrToken(req.params.id);
+    if (!profile) return res.status(404).json({ error: 'Ficha médica no encontrada.' });
+    res.json(profile);
+  } catch (error) {
+    console.error('Error al consultar ficha para administración:', error);
+    res.status(500).json({ error: 'No se pudo consultar la ficha médica.' });
+  }
+});
+
 // 3. Obtener un perfil específico por ID o Token (para Dashboard y Vista de Emergencia)
 app.get('/api/profiles/:id', verifyToken, async (req, res) => {
   try {
@@ -234,23 +269,6 @@ const createProfileHandler = async (req, res) => {
 
     const internalId = uuidv4();
     const publicToken = uuidv4();
-
-    // Base URL para enlace del QR
-    const host = req.get('host');
-    const protocol = req.protocol;
-    const baseUrl = process.env.BASE_URL || `${protocol}://${host}`;
-    const targetUrl = `${baseUrl}/emergency.html?token=${publicToken}`;
-
-    // Generar código QR en DataURL
-    const qrCodeDataUrl = await QRCode.toDataURL(targetUrl, {
-      errorCorrectionLevel: 'H',
-      margin: 2,
-      width: 380,
-      color: {
-        dark: '#111827',
-        light: '#ffffff'
-      }
-    });
 
     // Mapeo unificado compatible con snake_case de Gemini y camelCase existente
     const conditions = Array.isArray(body.conditions)
@@ -325,11 +343,6 @@ const createProfileHandler = async (req, res) => {
       message: 'Perfil de emergencia creado con éxito',
       profile_id: saved.id,
       id: saved.id,
-      public_token: publicToken,
-      public_url: targetUrl,
-      targetUrl,
-      qr_code: qrCodeDataUrl,
-      qrDataUrl: qrCodeDataUrl,
       ...saved
     });
   } catch (error) {
@@ -540,55 +553,54 @@ app.delete('/api/profiles/:id', verifyToken, async (req, res) => {
 // 8. Generador de Código QR para el Perfil
 // 🔒 PROTEGIDO: Requiere token JWT válido
 app.get('/api/profiles/:id/qr', verifyToken, async (req, res) => {
+  if (req.user.role !== 'admin') {
+    return res.status(403).json({ error: 'Solo un administrador puede consultar o generar códigos QR.' });
+  }
   try {
     const { id } = req.params;
     const profile = await db.getProfileByIdOrToken(id, req.user.userId);
+    if (!profile) return res.status(404).json({ error: 'Perfil no encontrado para generar código QR' });
+    await sendProfileQr(req, res, profile, id);
+  } catch (error) {
+    console.error('Error al generar código QR:', error);
+    if (!res.headersSent) res.status(500).json({ error: 'Error generando código QR' });
+  }
+});
 
-    if (!profile) {
-      return res.status(404).json({ error: 'Perfil no encontrado para generar código QR' });
-    }
+async function sendProfileQr(req, res, profile, profileId) {
+  const host = req.get('host');
+  const baseUrl = process.env.BASE_URL || `${req.protocol}://${host}`;
+  const token = profile.public_token || profile.id;
+  const targetUrl = `${baseUrl}/emergency.html?token=${encodeURIComponent(token)}`;
+  const format = req.query.format || 'dataurl';
 
-    // Base URL dinámica configurable por entorno o detectada desde el request
-    const host = req.get('host');
-    const protocol = req.protocol;
-    const baseUrl = process.env.BASE_URL || `${protocol}://${host}`;
-    const token = profile.public_token || profile.id;
-    const targetUrl = `${baseUrl}/emergency.html?token=${encodeURIComponent(token)}`;
-
-    const format = req.query.format || 'dataurl';
-
-    if (format === 'png') {
-      res.setHeader('Content-Type', 'image/png');
-      return QRCode.toFileStream(res, targetUrl, {
-        errorCorrectionLevel: 'H',
-        margin: 2,
-        width: 380,
-        color: {
-          dark: '#1e293b',
-          light: '#ffffff'
-        }
-      });
-    }
-
-    // Por defecto retorna objeto JSON con DataURL y targetUrl
-    const qrDataUrl = await QRCode.toDataURL(targetUrl, {
+  if (format === 'png') {
+    res.setHeader('Content-Type', 'image/png');
+    return QRCode.toFileStream(res, targetUrl, {
       errorCorrectionLevel: 'H',
       margin: 2,
       width: 380,
-      color: {
-        dark: '#111827',
-        light: '#ffffff'
-      }
+      color: { dark: '#1e293b', light: '#ffffff' },
     });
+  }
 
-    res.json({
-      profileId: id,
-      fullName: profile.fullName,
-      targetUrl,
-      qrDataUrl
-    });
+  const qrDataUrl = await QRCode.toDataURL(targetUrl, {
+    errorCorrectionLevel: 'H',
+    margin: 2,
+    width: 380,
+    color: { dark: '#111827', light: '#ffffff' },
+  });
+  res.json({ profileId, fullName: profile.fullName, targetUrl, qrDataUrl });
+}
+
+app.get('/api/admin/profiles/:id/qr', verifyToken, requireAdmin, async (req, res) => {
+  try {
+    const profile = await db.getProfileByIdOrToken(req.params.id);
+    if (!profile) return res.status(404).json({ error: 'Ficha no encontrada para generar código QR.' });
+    await sendProfileQr(req, res, profile, req.params.id);
   } catch (error) {
-    res.status(500).json({ error: 'Error generando código QR', details: error.message });
+    console.error('Error al generar QR de administración:', error);
+    if (!res.headersSent) res.status(500).json({ error: 'Error generando código QR.' });
   }
 });
 

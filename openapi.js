@@ -170,6 +170,7 @@ const openApiSpec = {
         type: 'object',
         properties: {
           id: { type: 'string' },
+          ownerUserId: { type: 'string', nullable: true },
           public_token: { type: 'string' },
           is_active: { type: 'boolean' },
           fullName: { type: 'string' },
@@ -384,6 +385,46 @@ const openApiSpec = {
         },
       },
     },
+    '/api/admin/profiles': {
+      get: {
+        tags: ['Administration'],
+        summary: 'Listar fichas médicas de todas las cuentas (solo administradores)',
+        security: bearer,
+        responses: {
+          ...responses([[200, 'Resumen de fichas médicas', { type: 'array', items: ref('ProfileSummary') }], [401, 'Sesión inválida'], [403, 'Se requieren privilegios de administrador']]),
+        },
+      },
+    },
+    '/api/admin/profiles/{id}': {
+      get: {
+        tags: ['Administration'],
+        summary: 'Consultar una ficha médica completa en modo de solo lectura',
+        security: bearer,
+        parameters: pathId,
+        responses: {
+          ...responses([[200, 'Ficha médica completa', ref('Profile')], [401, 'Sesión inválida'], [403, 'Se requieren privilegios de administrador'], [404, 'Ficha no encontrada']]),
+        },
+      },
+    },
+    '/api/admin/profiles/{id}/qr': {
+      get: {
+        tags: ['Administration'],
+        summary: 'Generar o descargar el QR de cualquier ficha (solo administradores)',
+        security: bearer,
+        parameters: pathId,
+        responses: {
+          ...responses([[200, 'Código QR', {
+            type: 'object',
+            properties: {
+              profileId: { type: 'string' },
+              fullName: { type: 'string' },
+              targetUrl: { type: 'string', format: 'uri' },
+              qrDataUrl: { type: 'string', description: 'Data URL del QR; con ?format=png responde una imagen PNG' },
+            },
+          }], [401, 'Sesión inválida'], [403, 'Se requieren privilegios de administrador'], [404, 'Ficha no encontrada']]),
+        },
+      },
+    },
     '/api/v1/emergency/{publicToken}': {
       get: {
         tags: ['Emergency'],
@@ -411,7 +452,7 @@ const openApiSpec = {
       },
       post: {
         tags: ['Profiles'],
-        summary: 'Crear una ficha y generar su código QR',
+        summary: 'Crear una ficha médica propia',
         security: bearer,
         requestBody: { required: true, ...json(profileInput) },
         responses: {
@@ -524,7 +565,7 @@ const openApiSpec = {
     '/api/profiles/{id}/qr': {
       get: {
         tags: ['Profiles'],
-        summary: 'Obtener el QR de una ficha propia',
+        summary: 'Obtener el QR de una ficha (solo administrador)',
         security: bearer,
         parameters: [
           ...pathId,
@@ -544,7 +585,7 @@ const openApiSpec = {
               'image/png': { schema: { type: 'string', format: 'binary' } },
             },
           },
-          ...responses([[401, 'Token ausente o inválido'], [404, 'Ficha no encontrada']]),
+          ...responses([[401, 'Token ausente o inválido'], [403, 'Solo administrador'], [404, 'Ficha no encontrada']]),
         },
       },
     },

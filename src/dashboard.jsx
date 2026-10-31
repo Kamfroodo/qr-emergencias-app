@@ -60,8 +60,6 @@ function Dashboard() {
   const [photoFile, setPhotoFile] = useState(null);
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState(null);
-  const [qr, setQr] = useState(null);
-  const [qrLoading, setQrLoading] = useState(false);
 
   async function loadProfiles() {
     setLoading(true);
@@ -126,16 +124,13 @@ function Dashboard() {
   }, [toast]);
 
   useEffect(() => {
-    if (!editing && !qr) return undefined;
+    if (!editing) return undefined;
     const onKeyDown = event => {
-      if (event.key === 'Escape') {
-        setEditing(null);
-        setQr(null);
-      }
+      if (event.key === 'Escape') setEditing(null);
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [editing, qr]);
+  }, [editing]);
 
   const filteredProfiles = useMemo(() => {
     const term = search.trim().toLocaleLowerCase();
@@ -290,38 +285,6 @@ function Dashboard() {
     }
   }
 
-  async function openQr(profile) {
-    setQrLoading(true);
-    setQr({ profile, targetUrl: '', qrDataUrl: '' });
-    try {
-      const response = await Auth.fetch(`/api/profiles/${encodeURIComponent(profile.id)}/qr`);
-      if (!response.ok) throw new Error('No se pudo generar el código QR.');
-      const data = await response.json();
-      setQr({ profile, targetUrl: data.targetUrl, qrDataUrl: data.qrDataUrl });
-    } catch (error) {
-      setQr(null);
-      notify(error.message, 'error');
-    } finally {
-      setQrLoading(false);
-    }
-  }
-
-  async function downloadQr() {
-    if (!qr) return;
-    try {
-      const response = await Auth.fetch(`/api/profiles/${encodeURIComponent(qr.profile.id)}/qr?format=png`);
-      if (!response.ok) throw new Error('No se pudo descargar el código QR.');
-      const url = URL.createObjectURL(await response.blob());
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `QR-Emergencia-${qr.profile.fullName.replace(/\s+/g, '_')}.png`;
-      link.click();
-      URL.revokeObjectURL(url);
-    } catch (error) {
-      notify(error.message, 'error');
-    }
-  }
-
   return (
     <>
       <section className="stats-grid" aria-label="Resumen de perfiles médicos">
@@ -359,7 +322,6 @@ function Dashboard() {
               onEdit={() => openEdit(profile.id)}
               onDelete={() => deleteProfile(profile)}
               onToggle={() => toggleStatus(profile)}
-              onQr={() => openQr(profile)}
             />
           ))}
         </section>
@@ -377,22 +339,6 @@ function Dashboard() {
           onClose={() => { setEditing(null); setPhotoFile(null); }}
         />
       )}
-      {qr && (
-        <QrDialog
-          qr={qr}
-          loading={qrLoading}
-          onClose={() => setQr(null)}
-          onDownload={downloadQr}
-          onCopy={async () => {
-            try {
-              await navigator.clipboard.writeText(qr.targetUrl);
-              notify('Enlace copiado.');
-            } catch {
-              notify('No se pudo copiar el enlace.', 'error');
-            }
-          }}
-        />
-      )}
       {toast && <div className={`profile-toast ${toast.type}`} role="status">{toast.message}</div>}
     </>
   );
@@ -402,7 +348,7 @@ function Stat({ icon, value, label }) {
   return <article className="stat-card"><div className="stat-icon red">{icon}</div><div className="stat-info"><div className="stat-value">{value}</div><div className="stat-label">{label}</div></div></article>;
 }
 
-function ProfileCard({ profile, onEdit, onDelete, onToggle, onQr }) {
+function ProfileCard({ profile, onEdit, onDelete, onToggle }) {
   const [photoError, setPhotoError] = useState(false);
   const initials = (profile.fullName || 'EM').split(/\s+/).map(part => part[0]).slice(0, 2).join('').toUpperCase();
   const emergencyUrl = `/emergency.html?token=${encodeURIComponent(profile.public_token || profile.id)}`;
@@ -427,7 +373,6 @@ function ProfileCard({ profile, onEdit, onDelete, onToggle, onQr }) {
         <div className="card-item"><span className="label">Alertas médicas</span><span className="val">{profile.allergiesCount || 0} alergias · {profile.conditionsCount || 0} afecciones</span></div>
       </div>
       <div className="profile-actions">
-        <button className="btn btn-primary btn-sm" onClick={onQr}>▦ Código QR</button>
         <a className="btn btn-secondary btn-sm" href={emergencyUrl} target="_blank" rel="noreferrer">Ver ficha</a>
         <button className="btn btn-secondary btn-sm" onClick={onToggle} title={active ? 'Pausar QR' : 'Activar QR'} aria-label={active ? 'Pausar código QR' : 'Activar código QR'}>{active ? 'Ⅱ' : '▶'}</button>
         <button className="btn btn-secondary btn-sm" onClick={onEdit} aria-label={`Editar ${profile.fullName}`}>✎</button>
@@ -529,27 +474,6 @@ function Field({ label, name, value, onChange, type = 'text', placeholder, requi
       {textarea ? <textarea id={`field-${name}`} name={name} className="form-control" value={value} onChange={onChange} placeholder={placeholder} rows={3} /> : select ? (
         <select id={`field-${name}`} name={name} className="form-control" value={value} onChange={onChange} required={required}>{options.map(option => <option key={option} value={option}>{option}</option>)}</select>
       ) : <input id={`field-${name}`} name={name} type={type} className="form-control" value={value ?? ''} onChange={onChange} placeholder={placeholder} required={required} min={min} max={max} readOnly={readOnly} />}
-    </div>
-  );
-}
-
-function QrDialog({ qr, loading, onClose, onDownload, onCopy }) {
-  return (
-    <div className="modal-overlay profile-overlay" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}>
-      <section className="modal-content qr-dialog" role="dialog" aria-modal="true" aria-labelledby="qr-title">
-        <header className="modal-header"><h2 className="modal-title" id="qr-title">Código QR · {qr.profile.fullName}</h2><button className="btn-close" type="button" onClick={onClose} aria-label="Cerrar">×</button></header>
-        <div className="qr-dialog-body">
-          <p>Al escanear el código se abrirá la ficha de emergencia de este perfil.</p>
-          <div className="qr-preview">{loading ? <span role="status">Generando código QR…</span> : <img src={qr.qrDataUrl} alt={`Código QR de emergencia de ${qr.profile.fullName}`} />}</div>
-          <p className="qr-link">{qr.targetUrl || 'Preparando enlace…'}</p>
-          <div className="qr-dialog-actions">
-            <button className="btn btn-primary" onClick={onDownload} disabled={loading}>Descargar PNG</button>
-            <button className="btn btn-secondary" onClick={onCopy} disabled={loading}>Copiar enlace</button>
-            <button className="btn btn-secondary" onClick={() => window.print()}>Imprimir</button>
-            <a className="btn btn-success" href={qr.targetUrl || '#'} target="_blank" rel="noreferrer">Ver ficha</a>
-          </div>
-        </div>
-      </section>
     </div>
   );
 }
