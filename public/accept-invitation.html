@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Aceptar invitación | QR Emergencias</title>
+  <style>
+    :root { color-scheme: light; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; color: #172033; background: #f3f6fb; }
+    * { box-sizing: border-box; }
+    body { display: grid; min-height: 100vh; margin: 0; place-items: center; padding: 1rem; }
+    main { width: min(100%, 440px); padding: 2rem; border: 1px solid #e0e6ef; border-radius: 16px; background: #fff; box-shadow: 0 16px 45px rgb(23 32 51 / 9%); }
+    h1 { margin: 0 0 .5rem; font-size: 1.6rem; }
+    p { color: #5a667a; line-height: 1.55; }
+    #inviteEmail { color: #172033; font-weight: 700; overflow-wrap: anywhere; }
+    label { display: grid; gap: .4rem; margin-top: 1rem; color: #566176; font-size: .9rem; font-weight: 650; }
+    input { min-height: 44px; padding: .65rem .75rem; border: 1px solid #ccd5e2; border-radius: 8px; font: inherit; }
+    button { width: 100%; min-height: 44px; margin-top: 1.25rem; border: 0; border-radius: 8px; color: #fff; background: #2e5aac; cursor: pointer; font: inherit; font-weight: 700; }
+    button:disabled { cursor: wait; opacity: .65; }
+    #message { min-height: 1.5rem; margin: 1rem 0 0; }
+    #message.error { color: #b42335; }
+    #message.success { color: #18764b; }
+    #acceptForm[hidden] { display: none; }
+    a { color: #2e5aac; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Activa tu cuenta</h1>
+    <p id="inviteSummary">Estamos comprobando tu invitación…</p>
+    <form id="acceptForm" hidden>
+      <label for="password">Crea una contraseña (mínimo 12 caracteres)
+        <input id="password" name="password" type="password" minlength="12" autocomplete="new-password" required>
+      </label>
+      <label for="confirmPassword">Confirma tu contraseña
+        <input id="confirmPassword" name="confirmPassword" type="password" minlength="12" autocomplete="new-password" required>
+      </label>
+      <button id="submitButton" type="submit">Crear cuenta</button>
+    </form>
+    <p id="message" role="status" aria-live="polite"></p>
+    <a href="/login.html">Volver al inicio de sesión</a>
+  </main>
+  <script>
+    const token = new URLSearchParams(location.search).get('token');
+    history.replaceState(null, '', location.pathname);
+    const form = document.getElementById('acceptForm');
+    const message = document.getElementById('message');
+    const summary = document.getElementById('inviteSummary');
+
+    function showError(text) {
+      message.textContent = text;
+      message.className = 'error';
+    }
+
+    async function validateInvitation() {
+      if (!token) {
+        summary.textContent = 'El enlace no contiene un token de invitación.';
+        return;
+      }
+      try {
+        const response = await fetch(`/api/auth/invitation/${encodeURIComponent(token)}`);
+        const result = await response.json();
+        if (!response.ok) {
+          summary.textContent = result.error || 'No se pudo validar la invitación.';
+          return;
+        }
+        summary.textContent = 'Invitación para ';
+        const email = document.createElement('span');
+        email.id = 'inviteEmail';
+        email.textContent = result.email;
+        summary.append(email, '. Define una contraseña para activar tu cuenta.');
+        form.hidden = false;
+      } catch {
+        summary.textContent = 'No se pudo conectar con el servidor. Inténtalo nuevamente.';
+      }
+    }
+
+    form.addEventListener('submit', async event => {
+      event.preventDefault();
+      message.textContent = '';
+      const password = document.getElementById('password').value;
+      const confirmPassword = document.getElementById('confirmPassword').value;
+      if (password.length < 12) return showError('La contraseña debe tener al menos 12 caracteres.');
+      if (password !== confirmPassword) return showError('Las contraseñas no coinciden.');
+
+      const button = document.getElementById('submitButton');
+      button.disabled = true;
+      try {
+        const response = await fetch('/api/auth/invitation/accept', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token, password }),
+        });
+        const result = await response.json();
+        if (!response.ok) return showError(result.error || 'No se pudo activar la cuenta.');
+        message.textContent = `${result.message} Redirigiendo al inicio de sesión…`;
+        message.className = 'success';
+        form.reset();
+        setTimeout(() => {
+          location.replace(`/login.html?email=${encodeURIComponent(result.user.email)}`);
+        }, 1800);
+      } catch {
+        showError('No se pudo conectar con el servidor. Inténtalo nuevamente.');
+      } finally {
+        button.disabled = false;
+      }
+    });
+
+    validateInvitation();
+  </script>
+</body>
+</html>

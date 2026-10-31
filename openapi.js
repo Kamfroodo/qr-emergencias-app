@@ -41,8 +41,8 @@ const openApiSpec = {
   servers: [{ url: '/', description: 'Servidor actual' }],
   tags: [
     { name: 'Health', description: 'Estado del servicio' },
-    { name: 'Authentication', description: 'Registro e inicio de sesión' },
-    { name: 'Administration', description: 'Gestión de cuentas, roles y acceso (solo administradores)' },
+    { name: 'Authentication', description: 'Invitaciones e inicio de sesión' },
+    { name: 'Administration', description: 'Gestión de cuentas, invitaciones, roles y acceso (solo administradores)' },
     { name: 'Emergency', description: 'Consulta pública desde el QR' },
     { name: 'Profiles', description: 'Gestión de fichas del usuario autenticado' },
   ],
@@ -80,6 +80,33 @@ const openApiSpec = {
             properties: { fullName: { type: 'string', example: 'Camila Ejemplo' } },
           },
         ],
+      },
+      InvitationAcceptance: {
+        type: 'object',
+        required: ['token', 'password'],
+        properties: {
+          token: { type: 'string', minLength: 43, maxLength: 43 },
+          password: { type: 'string', format: 'password', minLength: 12 },
+        },
+      },
+      CreateInvitationRequest: {
+        type: 'object',
+        required: ['email', 'fullName'],
+        properties: {
+          email: { type: 'string', format: 'email', maxLength: 254 },
+          fullName: { type: 'string', minLength: 1, maxLength: 160 },
+        },
+      },
+      Invitation: {
+        type: 'object',
+        properties: {
+          id: { type: 'string', format: 'uuid' },
+          email: { type: 'string', format: 'email' },
+          fullName: { type: 'string' },
+          createdAt: { type: 'string', format: 'date-time' },
+          expiresAt: { type: 'string', format: 'date-time' },
+          status: { type: 'string', enum: ['pending', 'accepted', 'revoked', 'expired'] },
+        },
       },
       User: {
         type: 'object',
@@ -202,16 +229,76 @@ const openApiSpec = {
     '/api/auth/register': {
       post: {
         tags: ['Authentication'],
-        summary: 'Registrar un usuario',
-        requestBody: {
-          required: true,
-          ...json(ref('RegisterRequest')),
-        },
+        summary: 'Registro público cerrado; se requiere invitación',
         responses: {
-          ...responses([[201, 'Usuario registrado', {
+          ...responses([[403, 'Registro cerrado: solicita una invitación al administrador']]),
+        },
+      },
+    },
+    '/api/auth/invitation/{token}': {
+      get: {
+        tags: ['Authentication'],
+        summary: 'Validar enlace de invitación',
+        parameters: [{ name: 'token', in: 'path', required: true, schema: { type: 'string' } }],
+        responses: {
+          ...responses([[200, 'Invitación válida', {
+            type: 'object',
+            properties: {
+              email: { type: 'string', format: 'email' },
+              fullName: { type: 'string' },
+              expiresAt: { type: 'string', format: 'date-time' },
+            },
+          }], [400, 'Enlace inválido'], [410, 'Invitación vencida, usada o revocada']]),
+        },
+      },
+    },
+    '/api/auth/invitation/accept': {
+      post: {
+        tags: ['Authentication'],
+        summary: 'Aceptar invitación y crear una cuenta',
+        requestBody: { required: true, ...json(ref('InvitationAcceptance')) },
+        responses: {
+          ...responses([[201, 'Cuenta creada', {
             type: 'object',
             properties: { message: { type: 'string' }, user: ref('User') },
-          }], [400, 'Datos inválidos'], [409, 'El correo ya está registrado']]),
+          }], [400, 'Token o contraseña inválidos'], [410, 'Invitación inválida o vencida']]),
+        },
+      },
+    },
+    '/api/auth/admin/invitations': {
+      get: {
+        tags: ['Administration'],
+        summary: 'Listar invitaciones recientes sin exponer tokens',
+        security: bearer,
+        responses: {
+          ...responses([[200, 'Invitaciones', { type: 'array', items: ref('Invitation') }], [401, 'Sesión inválida'], [403, 'Se requieren privilegios de administrador']]),
+        },
+      },
+      post: {
+        tags: ['Administration'],
+        summary: 'Crear o renovar un enlace de invitación de un solo uso',
+        security: bearer,
+        requestBody: { required: true, ...json(ref('CreateInvitationRequest')) },
+        responses: {
+          ...responses([[201, 'Invitación creada', {
+            type: 'object',
+            properties: {
+              invitation: ref('Invitation'),
+              invitationUrl: { type: 'string', format: 'uri' },
+              message: { type: 'string' },
+            },
+          }], [400, 'Correo o nombre inválido'], [403, 'Se requieren privilegios de administrador'], [409, 'La cuenta ya existe']]),
+        },
+      },
+    },
+    '/api/auth/admin/invitations/{id}/revoke': {
+      post: {
+        tags: ['Administration'],
+        summary: 'Revocar una invitación pendiente',
+        security: bearer,
+        parameters: pathId,
+        responses: {
+          ...responses([[200, 'Invitación revocada'], [400, 'Identificador inválido'], [403, 'Se requieren privilegios de administrador'], [404, 'Invitación no disponible']]),
         },
       },
     },

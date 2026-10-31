@@ -20,13 +20,57 @@
     <section class="intro">
       <p class="eyebrow">Administración de plataforma</p>
       <h1>Usuarios</h1>
-      <p>Administra el acceso y los roles de las cuentas. Eliminar una cuenta también elimina sus fichas médicas y no se puede deshacer.</p>
+      <p>Solo las personas invitadas pueden crear una cuenta. Desde aquí generas invitaciones y administras, suspendes o reactivas accesos existentes.</p>
+    </section>
+
+    <section class="user-panel invitation-panel" aria-labelledby="invitation-title">
+      <div class="panel-toolbar">
+        <div>
+          <h2 id="invitation-title">Invitar a un usuario</h2>
+          <p class="user-count">El enlace dura 7 días y se puede usar una sola vez. Cópialo y envíalo personalmente.</p>
+        </div>
+      </div>
+      <form id="invitationForm" class="invitation-form">
+        <label>Nombre completo
+          <input name="fullName" type="text" maxlength="160" autocomplete="name" required>
+        </label>
+        <label>Correo electrónico
+          <input name="email" type="email" maxlength="254" autocomplete="email" required>
+        </label>
+        <button class="button button-primary" type="submit">Generar invitación</button>
+      </form>
+      <div id="invitationLink" class="invitation-link" hidden></div>
+    </section>
+
+    <section class="user-panel invitation-panel" aria-labelledby="invitations-title">
+      <div class="panel-toolbar">
+        <div>
+          <h2 id="invitations-title">Invitaciones</h2>
+          <p id="invitationCount" class="user-count"></p>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Invitado</th>
+              <th>Correo</th>
+              <th>Vencimiento</th>
+              <th>Estado</th>
+              <th>Acciones</th>
+            </tr>
+          </thead>
+          <tbody id="invitationsTable">
+            <tr><td class="empty-state" colspan="5">Cargando invitaciones…</td></tr>
+          </tbody>
+        </table>
+      </div>
     </section>
 
     <section class="user-panel" aria-labelledby="users-title">
       <div class="panel-toolbar">
         <div>
-          <h2 id="users-title">Cuentas registradas</h2>
+          <h2 id="users-title">Cuentas activadas</h2>
           <p id="userCount" class="user-count"></p>
         </div>
         <label class="search-label" for="userSearch">Buscar usuario

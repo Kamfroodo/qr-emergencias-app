@@ -397,16 +397,6 @@
       <!-- Card de autenticación -->
       <div class="auth-card">
 
-        <!-- Tabs -->
-        <div class="auth-tabs" role="tablist">
-          <button class="auth-tab active" id="tabLogin" data-auth-tab="login" role="tab" aria-selected="true">
-            🔑 Iniciar Sesión
-          </button>
-          <button class="auth-tab" id="tabRegister" data-auth-tab="register" role="tab" aria-selected="false">
-            ✨ Crear Cuenta
-          </button>
-        </div>
-
         <!-- Alerta global -->
         <div class="auth-alert" id="authAlert" role="alert"></div>
 
@@ -454,76 +444,13 @@
           </form>
         </div>
 
-        <!-- ============================================
-             PANEL: REGISTRO
-             ============================================ -->
-        <div class="auth-panel" id="panelRegister">
-          <form id="registerForm" novalidate>
-
-            <div class="form-group">
-              <label for="regFullName">Nombre Completo</label>
-              <div class="input-wrapper">
-                <span class="input-icon">👤</span>
-                <input
-                  type="text"
-                  id="regFullName"
-                  class="form-control"
-                  placeholder="Ej: Ana González Rivas"
-                  autocomplete="name"
-                  required
-                >
-              </div>
-            </div>
-
-            <div class="form-group">
-              <label for="regEmail">Correo Electrónico</label>
-              <div class="input-wrapper">
-                <span class="input-icon">✉️</span>
-                <input
-                  type="email"
-                  id="regEmail"
-                  class="form-control"
-                  placeholder="tu@correo.com"
-                  autocomplete="email"
-                  required
-                >
-              </div>
-            </div>
-
-            <div class="form-group">
-              <label for="regPassword">Contraseña (mín. 8 caracteres)</label>
-              <div class="input-wrapper">
-                <span class="input-icon">🔒</span>
-                <input
-                  type="password"
-                  id="regPassword"
-                  class="form-control"
-                  placeholder="Crea una contraseña segura"
-                  autocomplete="new-password"
-                  required
-                  minlength="8"
-                >
-                <button type="button" class="toggle-password" data-password-toggle="regPassword" aria-label="Mostrar contraseña">👁️</button>
-              </div>
-              <div class="password-strength">
-                <div class="strength-bar" id="strengthBar"></div>
-              </div>
-            </div>
-
-            <button type="submit" class="btn-auth" id="btnRegister">
-              <div class="spinner"></div>
-              <span class="btn-text">✨ Crear mi Cuenta</span>
-            </button>
-          </form>
-        </div>
-
         <div class="divider">acceso protegido con JWT</div>
 
         <!-- Información de seguridad -->
         <div class="security-info">
           <span style="font-size: 1.1rem; flex-shrink: 0;">🛡️</span>
           <p>
-            La sesión dura <strong style="color: var(--text-subtle);">24 horas</strong>. Tu contraseña se almacena cifrada con <strong style="color: var(--text-subtle);">bcrypt (12 rondas)</strong>. Los QR de emergencia son accesibles sin autenticación para paramédicos.
+            El acceso requiere una invitación personal. Si necesitas una cuenta, solicita un enlace al administrador. Tu contraseña se protege con <strong style="color: var(--text-subtle);">bcrypt</strong>.
           </p>
         </div>
       </div>
@@ -588,24 +515,6 @@
     checkExistingSession();
 
     // ==========================================
-    // UI: Tabs login / registro
-    // ==========================================
-    function switchTab(tab) {
-      const isLogin = tab === 'login';
-      document.getElementById('tabLogin').classList.toggle('active', isLogin);
-      document.getElementById('tabRegister').classList.toggle('active', !isLogin);
-      document.getElementById('tabLogin').setAttribute('aria-selected', String(isLogin));
-      document.getElementById('tabRegister').setAttribute('aria-selected', String(!isLogin));
-      document.getElementById('panelLogin').classList.toggle('active', isLogin);
-      document.getElementById('panelRegister').classList.toggle('active', !isLogin);
-      hideAlert();
-    }
-
-    document.querySelectorAll('[data-auth-tab]').forEach(tab => {
-      tab.addEventListener('click', () => switchTab(tab.dataset.authTab));
-    });
-
-    // ==========================================
     // UI: Mostrar/ocultar contraseña
     // ==========================================
     function togglePwd(fieldId, btn) {
@@ -617,24 +526,6 @@
 
     document.querySelectorAll('[data-password-toggle]').forEach(button => {
       button.addEventListener('click', () => togglePwd(button.dataset.passwordToggle, button));
-    });
-
-    // ==========================================
-    // UI: Fortaleza de contraseña
-    // ==========================================
-    document.getElementById('regPassword').addEventListener('input', function() {
-      const val = this.value;
-      const bar = document.getElementById('strengthBar');
-      let strength = 0;
-      if (val.length >= 8) strength++;
-      if (/[A-Z]/.test(val)) strength++;
-      if (/[0-9]/.test(val)) strength++;
-      if (/[^A-Za-z0-9]/.test(val)) strength++;
-
-      const colors = ['#ef233c', '#f59e0b', '#3b82f6', '#10b981'];
-      const widths  = ['25%', '50%', '75%', '100%'];
-      bar.style.width = val ? widths[strength - 1] || '10%' : '0%';
-      bar.style.background = val ? colors[strength - 1] || '#ef233c' : 'transparent';
     });
 
     // ==========================================
@@ -715,56 +606,11 @@
       }
     });
 
-    // ==========================================
-    // FORMULARIO: Registro
-    // ==========================================
-    document.getElementById('registerForm').addEventListener('submit', async (e) => {
-      e.preventDefault();
-      hideAlert();
-
-      const fullName = document.getElementById('regFullName').value.trim();
-      const email    = document.getElementById('regEmail').value.trim();
-      const password = document.getElementById('regPassword').value;
-
-      if (!fullName || !email || !password) {
-        return showAlert('Completa todos los campos para registrarte.');
-      }
-
-      if (password.length < 8) {
-        return showAlert('La contraseña debe tener al menos 8 caracteres.');
-      }
-
-      setLoading('btnRegister', true);
-
-      try {
-        const res = await fetch('/api/auth/register', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email, password, fullName })
-        });
-
-        const data = await res.json();
-
-        if (!res.ok) {
-          showAlert(data.error || 'No se pudo completar el registro.');
-          return;
-        }
-
-        showAlert('¡Cuenta creada con éxito! Inicia sesión a continuación.', 'success');
-        document.getElementById('registerForm').reset();
-        document.getElementById('strengthBar').style.width = '0%';
-
-        setTimeout(() => {
-          switchTab('login');
-          document.getElementById('loginEmail').value = email;
-        }, 1500);
-
-      } catch (err) {
-        showAlert('Error de conexión con el servidor. Intenta de nuevo.');
-      } finally {
-        setLoading('btnRegister', false);
-      }
-    });
+    const invitedEmail = new URLSearchParams(location.search).get('email');
+    if (invitedEmail) {
+      document.getElementById('loginEmail').value = invitedEmail;
+      history.replaceState(null, '', location.pathname);
+    }
   </script>
 </body>
 </html>

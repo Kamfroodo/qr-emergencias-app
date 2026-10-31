@@ -2,6 +2,7 @@ const assert = require('node:assert/strict');
 const { randomUUID } = require('node:crypto');
 const { after, before, test } = require('node:test');
 
+process.env.NODE_ENV = 'test';
 process.env.JWT_SECRET = 'profile-update-test-secret';
 process.env.SUPABASE_URL = '';
 process.env.SUPABASE_SERVICE_ROLE_KEY = '';
@@ -9,6 +10,7 @@ process.env.SUPABASE_KEY = '';
 process.env.SUPABASE_ANON_KEY = '';
 
 const app = require('../app');
+const { createLocalUserForTests } = require('../auth');
 
 let server;
 let baseUrl;
@@ -74,12 +76,11 @@ test('PUT updates an authenticated user profile without changing its ownership o
 
   const suffix = `${Date.now()}-${Math.random()}`;
   const password = 'test-password-123';
-  const { response: registerResponse } = await postJson('/api/auth/register', {
+  await createLocalUserForTests({
     email: `profile-owner-${suffix}@example.com`,
     password,
     fullName: 'Profile Owner',
   });
-  assert.equal(registerResponse.status, 201);
 
   const { response: loginResponse, body: login } = await postJson('/api/auth/login', {
     email: `profile-owner-${suffix}@example.com`,
@@ -88,12 +89,11 @@ test('PUT updates an authenticated user profile without changing its ownership o
   assert.equal(loginResponse.status, 200);
   const ownerHeaders = { Authorization: `Bearer ${login.token}` };
 
-  const { response: otherRegisterResponse } = await postJson('/api/auth/register', {
+  await createLocalUserForTests({
     email: `profile-other-${suffix}@example.com`,
     password,
     fullName: 'Other User',
   });
-  assert.equal(otherRegisterResponse.status, 201);
   const { body: otherLogin } = await postJson('/api/auth/login', {
     email: `profile-other-${suffix}@example.com`,
     password,

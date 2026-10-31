@@ -7,6 +7,7 @@
 const express = require('express');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
+const { createHash, randomBytes } = require('node:crypto');
 const { v4: uuidv4 } = require('uuid');
 
 const router = express.Router();
@@ -52,6 +53,179 @@ if (supabaseUrl && supabaseKey && !supabaseKey.includes('tu_supabase')) {
 
 // Fallback local para desarrollo sin base de datos
 const localUsers = [];
+const localInvitations = [];
+const localInvitationAccepting = new Set();
+const INVITATION_LIFETIME_MS = 7 * 24 * 60 * 60 * 1000;
+const INVITATION_TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/;
+
+function hashInvitationToken(token) {
+  return createHash('sha256').update(token).digest('hex');
+}
+
+function publicInvitation(invitation) {
+  const now = Date.now();
+  const status = invitation.used_at ? 'accepted'
+    : invitation.revoked_at ? 'revoked'
+      : new Date(invitation.expires_at).getTime() <= now ? 'expired'
+        : 'pending';
+  return {
+    id: invitation.id,
+    email: invitation.email,
+    fullName: invitation.full_name,
+    createdAt: invitation.created_at,
+    expiresAt: invitation.expires_at,
+    status,
+  };
+}
+
+async function listInvitations() {
+  if (supabase) {
+    const { data, error } = await supabase
+      .from('user_invitations')
+      .select('id, email, full_name, created_at, expires_at, used_at, revoked_at')
+      .order('created_at', { ascending: false })
+      .limit(100);
+    if (error) {
+      console.error('[Auth DB] listInvitations:', error.message);
+      throw new Error('No se pudieron cargar las invitaciones. Verifica la migración de acceso.');
+    }
+    return data.map(publicInvitation);
+  }
+  return localInvitations
+    .slice()
+    .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+    .slice(0, 100)
+    .map(publicInvitation);
+}
+
+async function createInvitation({ email, fullName, tokenHash, createdBy }) {
+  const createdAt = new Date();
+  const invitation = {
+    id: uuidv4(),
+    email,
+    full_name: fullName,
+    token_hash: tokenHash,
+    created_by: createdBy,
+    created_at: createdAt.toISOString(),
+    expires_at: new Date(createdAt.getTime() + INVITATION_LIFETIME_MS).toISOString(),
+    used_at: null,
+    revoked_at: null,
+  };
+
+  if (supabase) {
+    const { data, error } = await supabase.rpc('admin_create_user_invitation', {
+      target_email: email,
+      target_full_name: fullName,
+      target_token_hash: tokenHash,
+      target_created_by: createdBy,
+      target_expires_at: invitation.expires_at,
+    });
+    if (error) {
+      console.error('[Auth DB] createInvitation:', error.message);
+      if (error.code === 'P0001') throw new Error('Ese correo ya tiene una cuenta activa. Puedes reactivarla desde la administración.');
+      throw new Error('No se pudo crear la invitación. Verifica que aplicaste la migración de acceso.');
+    }
+    return publicInvitation({ ...invitation, id: data });
+  }
+
+  if (localUsers.some(user => user.email === email)) {
+    throw new Error('Ese correo ya tiene una cuenta activa. Puedes reactivarla desde la administración.');
+  }
+  for (const previous of localInvitations) {
+    if (previous.email === email && !previous.used_at && !previous.revoked_at) {
+      previous.revoked_at = createdAt.toISOString();
+    }
+  }
+  localInvitations.push(invitation);
+  return publicInvitation(invitation);
+}
+
+async function findValidInvitation(tokenHash) {
+  if (supabase) {
+    const { data, error } = await supabase
+      .from('user_invitations')
+      .select('id, email, full_name, expires_at')
+      .eq('token_hash', tokenHash)
+      .is('used_at', null)
+      .is('revoked_at', null)
+      .gt('expires_at', new Date().toISOString())
+      .maybeSingle();
+    if (error) throw databaseUnavailable('validar la invitación', error);
+    return data;
+  }
+  return localInvitations.find(invitation =>
+    invitation.token_hash === tokenHash &&
+    !invitation.used_at &&
+    !invitation.revoked_at &&
+    new Date(invitation.expires_at).getTime() > Date.now()
+  ) || null;
+}
+
+async function acceptInvitation(tokenHash, passwordHash) {
+  if (supabase) {
+    const { data, error } = await supabase.rpc('accept_user_invitation', {
+      target_token_hash: tokenHash,
+      target_password_hash: passwordHash,
+    });
+    if (error) {
+      console.error('[Auth DB] acceptInvitation:', error.message);
+      if (error.code === 'P0001' && error.message.includes('account already exists')) {
+        throw new Error('Ese correo ya tiene una cuenta. Solicita ayuda al administrador.');
+      }
+      if (error.code === 'P0001') throw new Error('La invitación expiró, ya se usó o fue revocada.');
+      throw new Error('No se pudo completar la invitación. Verifica que aplicaste la migración de acceso.');
+    }
+    return findUserById(data);
+  }
+
+  if (localInvitationAccepting.has(tokenHash)) {
+    throw new Error('La invitación expiró, ya se usó o fue revocada.');
+  }
+  localInvitationAccepting.add(tokenHash);
+  try {
+    const invitation = await findValidInvitation(tokenHash);
+    if (!invitation) throw new Error('La invitación expiró, ya se usó o fue revocada.');
+    if (localUsers.some(user => user.email === invitation.email)) {
+      throw new Error('Ese correo ya tiene una cuenta. Solicita ayuda al administrador.');
+    }
+    const user = {
+      id: uuidv4(),
+      email: invitation.email,
+      password_hash: passwordHash,
+      full_name: invitation.full_name,
+      role: 'user',
+      is_active: true,
+      created_at: new Date().toISOString(),
+    };
+    localUsers.push(user);
+    invitation.used_at = new Date().toISOString();
+    return user;
+  } finally {
+    localInvitationAccepting.delete(tokenHash);
+  }
+}
+
+async function revokeInvitation(id) {
+  if (supabase) {
+    const { data, error } = await supabase
+      .from('user_invitations')
+      .update({ revoked_at: new Date().toISOString() })
+      .eq('id', id)
+      .is('used_at', null)
+      .is('revoked_at', null)
+      .select('id')
+      .maybeSingle();
+    if (error) {
+      console.error('[Auth DB] revokeInvitation:', error.message);
+      throw new Error('No se pudo revocar la invitación.');
+    }
+    return Boolean(data);
+  }
+  const invitation = localInvitations.find(item => item.id === id && !item.used_at && !item.revoked_at);
+  if (!invitation) return false;
+  invitation.revoked_at = new Date().toISOString();
+  return true;
+}
 
 async function findUserByEmail(email) {
   if (supabase) {
@@ -281,74 +455,122 @@ function requireAdmin(req, res, next) {
 // RUTAS DE AUTENTICACIÓN (Públicas)
 // ==========================================
 
-/**
- * POST /api/auth/register
- * Registrar un nuevo usuario gestor de perfiles médicos.
- * Body: { email, password, fullName }
- */
-router.post('/register', async (req, res) => {
+router.post('/register', (req, res) => {
+  res.status(403).json({
+    error: 'El registro está cerrado. Solicita una invitación al administrador.',
+    code: 'INVITATION_REQUIRED',
+  });
+});
+
+router.get('/invitation/:token', async (req, res) => {
+  const { token } = req.params;
+  if (!INVITATION_TOKEN_PATTERN.test(token)) {
+    return res.status(400).json({ error: 'El enlace de invitación no es válido.' });
+  }
   try {
-    const { email, password, fullName } = req.body;
-
-    // Validaciones básicas
-    if (!email || !password || !fullName) {
-      return res.status(400).json({
-        error: 'Faltan campos obligatorios.',
-        required: ['email', 'password', 'fullName']
-      });
+    const invitation = await findValidInvitation(hashInvitationToken(token));
+    if (!invitation) {
+      return res.status(410).json({ error: 'La invitación expiró, ya se usó o fue revocada.' });
     }
-
-    if (password.length < 8) {
-      return res.status(400).json({
-        error: 'La contraseña debe tener al menos 8 caracteres.'
-      });
-    }
-
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(email)) {
-      return res.status(400).json({ error: 'El formato del correo electrónico no es válido.' });
-    }
-
-    // Verificar si el correo ya está registrado
-    const existing = await findUserByEmail(email);
-    if (existing) {
-      return res.status(409).json({ error: 'Este correo electrónico ya está registrado.' });
-    }
-
-    // Cifrar contraseña con bcrypt (12 rondas = alto nivel de seguridad)
-    const passwordHash = await bcrypt.hash(password, BCRYPT_ROUNDS);
-
-    const newUser = {
-      id: uuidv4(),
-      email: email.toLowerCase().trim(),
-      password_hash: passwordHash,
-      full_name: fullName.trim(),
-      role: 'user',
-      is_active: true,
-      created_at: new Date().toISOString()
-    };
-
-    const saved = await saveUser(newUser);
-
-    console.log(`[Auth] Nuevo usuario registrado: ${newUser.email}`);
-
-    res.status(201).json({
-      message: 'Usuario registrado con éxito. Ya puedes iniciar sesión.',
-      user: {
-        id: saved.id || newUser.id,
-        email: newUser.email,
-        fullName: newUser.full_name,
-        role: newUser.role
-      }
+    res.json({
+      email: invitation.email,
+      fullName: invitation.full_name,
+      expiresAt: invitation.expires_at,
     });
   } catch (error) {
-    console.error('[Auth] Error en /register:', error);
-    if (error.code === 'DATABASE_UNAVAILABLE') {
-      return res.status(503).json({
-        error: 'No se pudo conectar con Supabase. Revisa la URL del proyecto y la conexión.'
-      });
+    console.error('[Auth] Error al consultar la invitación:', error);
+    res.status(503).json({ error: 'No se pudo validar la invitación.' });
+  }
+});
+
+router.post('/invitation/accept', async (req, res) => {
+  const { token, password } = req.body || {};
+  if (typeof token !== 'string' || !INVITATION_TOKEN_PATTERN.test(token)) {
+    return res.status(400).json({ error: 'El enlace de invitación no es válido.' });
+  }
+  if (typeof password !== 'string' || password.length < 12) {
+    return res.status(400).json({ error: 'La contraseña debe tener al menos 12 caracteres.' });
+  }
+  try {
+    const passwordHash = await bcrypt.hash(password, BCRYPT_ROUNDS);
+    const user = await acceptInvitation(hashInvitationToken(token), passwordHash);
+    console.log(`[Auth] Invitación aceptada: ${user.email}`);
+    res.status(201).json({
+      message: 'Cuenta activada. Ya puedes iniciar sesión.',
+      user: publicUser(user),
+    });
+  } catch (error) {
+    if (error.message.includes('invitación')) {
+      return res.status(410).json({ error: error.message });
     }
-    res.status(500).json({ error: 'Error interno al registrar el usuario.' });
+    if (error.message.includes('ya tiene una cuenta')) {
+      return res.status(409).json({ error: error.message });
+    }
+    if (error.code === 'DATABASE_UNAVAILABLE') {
+      return res.status(503).json({ error: 'No se pudo conectar con Supabase.' });
+    }
+    console.error('[Auth] Error al aceptar invitación:', error);
+    res.status(503).json({ error: error.message || 'No se pudo activar la cuenta.' });
+  }
+});
+
+router.get('/admin/invitations', verifyToken, requireAdmin, async (req, res) => {
+  try {
+    res.json(await listInvitations());
+  } catch (error) {
+    console.error('[Auth] Error al listar invitaciones:', error);
+    res.status(500).json({ error: error.message || 'No se pudieron cargar las invitaciones.' });
+  }
+});
+
+router.post('/admin/invitations', verifyToken, requireAdmin, async (req, res) => {
+  const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : '';
+  const fullName = typeof req.body?.fullName === 'string' ? req.body.fullName.trim() : '';
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254) {
+    return res.status(400).json({ error: 'Ingresa un correo electrónico válido.' });
+  }
+  if (!fullName || fullName.length > 160) {
+    return res.status(400).json({ error: 'Ingresa un nombre de hasta 160 caracteres.' });
+  }
+  try {
+    if (await findUserByEmail(email)) {
+      return res.status(409).json({ error: 'Ese correo ya tiene una cuenta. Puedes reactivarla desde la administración.' });
+    }
+    const token = randomBytes(32).toString('base64url');
+    const invitation = await createInvitation({
+      email,
+      fullName,
+      tokenHash: hashInvitationToken(token),
+      createdBy: req.user.userId,
+    });
+    const baseUrl = process.env.BASE_URL || `${req.protocol}://${req.get('host')}`;
+    const invitationUrl = new URL(`/accept-invitation.html?token=${encodeURIComponent(token)}`, baseUrl).toString();
+    res.status(201).json({
+      invitation,
+      invitationUrl,
+      message: 'Enlace generado. Cópialo ahora y envíalo al usuario; no volverá a mostrarse.',
+    });
+  } catch (error) {
+    if (error.message.includes('ya tiene una cuenta')) {
+      return res.status(409).json({ error: error.message });
+    }
+    console.error('[Auth] Error al crear invitación:', error);
+    res.status(500).json({ error: error.message || 'No se pudo crear la invitación.' });
+  }
+});
+
+router.post('/admin/invitations/:id/revoke', verifyToken, requireAdmin, async (req, res) => {
+  if (!UUID_PATTERN.test(req.params.id)) {
+    return res.status(400).json({ error: 'El identificador de invitación no es válido.' });
+  }
+  try {
+    if (!await revokeInvitation(req.params.id)) {
+      return res.status(404).json({ error: 'La invitación no existe o ya fue utilizada/revocada.' });
+    }
+    res.json({ message: 'Invitación revocada.' });
+  } catch (error) {
+    console.error('[Auth] Error al revocar invitación:', error);
+    res.status(500).json({ error: 'No se pudo revocar la invitación.' });
   }
 });
 
@@ -546,6 +768,19 @@ if (process.env.NODE_ENV === 'test') {
     const user = localUsers.find(entry => entry.id === id);
     if (!user) throw new Error('Test user not found.');
     user.role = role;
+  };
+  authModule.createLocalUserForTests = async ({ email, password, fullName, role = 'user' }) => {
+    if (supabase) throw new Error('Local test users cannot be created while Supabase is configured.');
+    const user = await saveUser({
+      id: uuidv4(),
+      email: email.toLowerCase(),
+      password_hash: await bcrypt.hash(password, BCRYPT_ROUNDS),
+      full_name: fullName,
+      role,
+      is_active: true,
+      created_at: new Date().toISOString(),
+    });
+    return publicUser(user);
   };
 }
 module.exports = authModule;

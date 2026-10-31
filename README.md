@@ -23,7 +23,7 @@ Aplicación web para crear y administrar perfiles médicos de emergencia y compa
 ## Funciones
 
 - Registro, inicio de sesión y autenticación con JWT.
-- Panel de administración para listar cuentas, suspenderlas/reactivarlas, gestionar roles y eliminar cuentas con sus perfiles.
+- Panel de administración para invitar usuarios, revocar o renovar invitaciones, suspender/reactivar cuentas, gestionar roles y eliminar cuentas con sus perfiles.
 - Panel React para listar, buscar, crear y editar perfiles médicos.
 - Gestión de datos personales, grupo sanguíneo, contactos de emergencia, alergias, condiciones, medicamentos, seguro y notas clínicas.
 - Activación y pausa de fichas; pausar una ficha revoca el acceso público asociado a su QR.
@@ -172,23 +172,38 @@ Las fichas están asociadas a la cuenta que las creó. Las rutas privadas requie
 1. Crea un proyecto de Supabase.
 2. Ejecuta el contenido de `supabase_schema.sql` en el SQL Editor del proyecto.
 3. En **Storage**, crea un bucket público llamado `medical-photos` (o configura `SUPABASE_PHOTO_BUCKET` con el nombre elegido). El bucket debe aceptar JPG, PNG y WebP de hasta 5 MB. Las fotos podrán verse públicamente desde la ficha QR, igual que los otros datos de emergencia; no subas imágenes que no deban ser públicas.
-4. Registra tu cuenta desde la página de acceso y confirma que puedes iniciar sesión.
-5. En el SQL Editor, asigna el rol de administrador a tu cuenta usando el correo con el que te registraste:
+4. Si ya tienes una cuenta, consérvala: las cuentas existentes siguen funcionando. Si necesitas convertir una cuenta existente en administradora, verifica cuidadosamente el correo y ejecuta una sola vez:
 
    ```sql
    UPDATE public.users
    SET role = 'admin', updated_at = NOW()
-   WHERE email = lower('TU_CORREO_DE_REGISTRO')
+   WHERE email = lower('TU_CORREO_EXISTENTE')
    RETURNING id, email, role;
    ```
 
-   Comprueba que la consulta devuelva exactamente tu cuenta y `role = admin`. No agregues una opción para elevar roles al formulario público.
-6. Configura `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` y, si corresponde, `SUPABASE_PHOTO_BUCKET` en el entorno local o en el gestor de secretos del servidor.
-7. Reinicia la aplicación, vuelve a iniciar sesión y comprueba `GET /health`; el campo `database` debe mostrar `supabase_cloud` como modo configurado. Después, prueba el inicio de sesión o crea un perfil para confirmar que las operaciones llegan a Supabase.
+   Comprueba que se modificó exactamente tu cuenta prevista.
+5. Si es una instalación nueva sin usuarios, crea la primera cuenta administradora desde el SQL Editor. Genera primero un hash bcrypt en tu equipo (no uses una contraseña en texto plano en SQL):
 
-El panel de usuarios aparece en el dashboard después de iniciar sesión como administrador. Permite consultar datos básicos de las cuentas, suspender/reactivar acceso, cambiar el rol y eliminar una cuenta. La suspensión invalida las sesiones existentes en la siguiente petición. La eliminación también borra los perfiles médicos asociados y es irreversible. No expone a los administradores las fichas médicas de otras cuentas.
+   ```powershell
+   node -e "const r=require('node:readline').createInterface({input:process.stdin,output:process.stdout});r.question('Contraseña: ',async p=>{console.log(await require('bcryptjs').hash(p,12));r.close()})"
+   ```
 
-El backend usa exclusivamente `SUPABASE_SERVICE_ROLE_KEY` para comunicarse con Supabase. No uses la clave `anon`/`publishable` ni incluyas la clave de servidor en el frontend. El esquema mantiene RLS habilitado, revoca el acceso directo de `anon` y `authenticated`, y concede operaciones de datos solo a `service_role`; las consultas públicas de emergencia pasan por el endpoint de la aplicación, que devuelve los campos previstos para emergencias. Revisa las copias de seguridad y las reglas de retención con los requisitos de privacidad aplicables.
+   Inserta el hash resultante y tu correo en Supabase:
+
+   ```sql
+   INSERT INTO public.users (email, password_hash, full_name, role, is_active)
+   VALUES (lower('TU_CORREO'), 'PEGA_AQUI_EL_HASH_BCRYPT', 'Tu nombre', 'admin', TRUE)
+   RETURNING id, email, role;
+   ```
+
+   Guarda la contraseña de forma segura y elimina el hash de cualquier nota temporal.
+6. Ejecuta `supabase_access_control.sql` en el SQL Editor **después** de `supabase_schema.sql`. Crea la tabla protegida de invitaciones y las funciones atómicas para crear y aceptar enlaces de un solo uso.
+7. Configura `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` y, si corresponde, `SUPABASE_PHOTO_BUCKET` en el entorno local o en el gestor de secretos del servidor.
+8. Reinicia la aplicación, inicia sesión con la cuenta administradora y comprueba `GET /health`; el campo `database` debe mostrar `supabase_cloud`.
+
+El panel de administración permite generar un enlace de invitación, copiarlo y enviarlo manualmente. El enlace vence a los 7 días, solo puede aceptarse una vez y el administrador puede revocarlo o generar otro. La persona invitada establece una contraseña de al menos 12 caracteres. No se envían correos automáticamente. El panel también permite suspender/reactivar cuentas, cambiar roles y eliminar cuentas. La suspensión invalida las sesiones existentes en la siguiente petición. La eliminación borra los perfiles médicos asociados y es irreversible. No expone a los administradores las fichas médicas de otras cuentas.
+
+Si no ejecutas `supabase_access_control.sql`, los endpoints de invitaciones no estarán disponibles en Supabase. El backend usa exclusivamente `SUPABASE_SERVICE_ROLE_KEY`; no incluyas esa clave ni los tokens de invitación en el frontend, capturas o registros.
 
 ## API y Swagger
 
@@ -210,10 +225,15 @@ La tabla resume las rutas principales:
 | Método | Ruta | Acceso | Descripción |
 | --- | --- | --- | --- |
 | `GET` | `/health` | Público | Estado del servicio y conexión a base de datos |
-| `POST` | `/api/auth/register` | Público | Registrar usuario |
+| `POST` | `/api/auth/register` | Público | Registro cerrado; responde `403` y requiere invitación |
+| `GET` | `/api/auth/invitation/:token` | Público | Validar una invitación |
+| `POST` | `/api/auth/invitation/accept` | Público | Aceptar una invitación y crear la cuenta |
 | `POST` | `/api/auth/login` | Público | Iniciar sesión y obtener JWT |
 | `GET` | `/api/auth/me` | JWT | Consultar usuario autenticado |
 | `POST` | `/api/auth/verify` | JWT | Validar sesión y estado de la cuenta |
+| `GET` | `/api/auth/admin/invitations` | Admin | Listar invitaciones sin tokens |
+| `POST` | `/api/auth/admin/invitations` | Admin | Crear o renovar un enlace de invitación |
+| `POST` | `/api/auth/admin/invitations/:id/revoke` | Admin | Revocar una invitación |
 | `GET` | `/api/auth/admin/users` | Admin | Listar cuentas sin datos de contraseña |
 | `PATCH` | `/api/auth/admin/users/:id/status` | Admin | Suspender o reactivar una cuenta |
 | `PATCH` | `/api/auth/admin/users/:id/role` | Admin | Asignar o retirar el rol de administrador |
@@ -238,7 +258,7 @@ npm run build:dashboard
 npm test
 ```
 
-Las pruebas usan el runner integrado `node:test` y solicitudes HTTP de Node.js; no hace falta instalar Jest ni Supertest para la cobertura actual. Comprueban perfiles y aislamiento entre usuarios, endpoints de administración, suspensión y eliminación de cuentas, y disponibilidad de Swagger.
+Las pruebas usan el runner integrado `node:test` y solicitudes HTTP de Node.js; no hace falta instalar Jest ni Supertest para la cobertura actual. Comprueban registro cerrado, creación/aceptación/revocación de invitaciones, perfiles y aislamiento entre usuarios, endpoints de administración, suspensión y eliminación de cuentas, y disponibilidad de Swagger.
 
 GitHub Actions ejecuta `npm ci`, compila el panel React y corre `npm test` con Node.js 22 y 24 en los eventos configurados en `.github/workflows/test.yml`.
 
@@ -256,9 +276,10 @@ El repositorio incluye `render.yaml` para crear un servicio web desde Docker. El
    - `JWT_SECRET`: Render lo genera automáticamente desde `render.yaml`.
 
    Si el dominio todavía no aparece al completar la configuración, crea el servicio y establece `BASE_URL` en **Environment** con la URL asignada; luego vuelve a desplegar. No configures `PORT`: Render lo proporciona (por defecto `10000`).
-4. Espera que el build Docker y el health check `/health` terminen correctamente. Abre el dominio HTTPS de Render y prueba registro, inicio de sesión, creación/edición de un perfil y su QR. `/health` debe informar `"database":"supabase_cloud"`; ese campo indica que el backend está configurado para Supabase, por lo que también debes comprobar una operación real, como iniciar sesión o guardar un perfil.
-5. Si es el primer despliegue y aún no hay una cuenta administradora, registra tu cuenta y sigue la consulta SQL de la sección [Supabase](#supabase) para asignarte el rol `admin`. No habilites la elevación de rol desde el formulario público.
-6. Si más adelante agregas un dominio propio, actualiza `BASE_URL` en Render y vuelve a desplegar. Verifica los enlaces de QR existentes y regenera o reimprime los que todavía apunten al dominio anterior.
+4. Antes del primer deploy de esta versión, ejecuta `supabase_access_control.sql` en el SQL Editor de Supabase y confirma que existe una cuenta con rol `admin`.
+5. Espera que el build Docker y el health check `/health` terminen correctamente. Abre el dominio HTTPS de Render e inicia sesión como administrador. Desde el panel genera una invitación y comprueba su aceptación, creación/edición de un perfil y su QR. `/health` debe informar `"database":"supabase_cloud"`.
+6. Si es el primer despliegue y aún no hay una cuenta administradora, sigue los pasos de la sección [Supabase](#supabase) para crear una cuenta inicial segura. Las cuentas nuevas posteriores se crean mediante invitaciones.
+7. Si más adelante agregas un dominio propio, actualiza `BASE_URL` en Render y vuelve a desplegar. Verifica los enlaces de QR existentes y regenera o reimprime los que todavía apunten al dominio anterior.
 
 La aplicación maneja datos médicos sensibles. Antes de cargar datos reales, revisa las obligaciones legales y de privacidad aplicables, la región de alojamiento, el acceso a respaldos y las condiciones de Supabase y Render. El QR de un perfil activo permite consultar públicamente los campos de emergencia previstos por la aplicación.
 

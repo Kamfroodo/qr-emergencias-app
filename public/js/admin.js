@@ -2,7 +2,12 @@ const usersTable = document.getElementById('usersTable');
 const userCount = document.getElementById('userCount');
 const userSearch = document.getElementById('userSearch');
 const statusMessage = document.getElementById('statusMessage');
+const invitationForm = document.getElementById('invitationForm');
+const invitationsTable = document.getElementById('invitationsTable');
+const invitationCount = document.getElementById('invitationCount');
+const invitationLink = document.getElementById('invitationLink');
 let users = [];
+let invitations = [];
 let currentUser = null;
 
 function showMessage(message, type = 'error') {
@@ -87,6 +92,84 @@ function renderUsers() {
   }
 }
 
+function showInvitationLink(url) {
+  invitationLink.replaceChildren();
+  invitationLink.hidden = false;
+  const label = element('label', '', 'Enlace de invitación (solo se muestra ahora)');
+  label.htmlFor = 'generatedInvitationUrl';
+  const input = element('input');
+  input.id = 'generatedInvitationUrl';
+  input.type = 'url';
+  input.readOnly = true;
+  input.value = url;
+  const copy = element('button', 'button button-primary', 'Copiar enlace');
+  copy.type = 'button';
+  copy.addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(url);
+      showMessage('Enlace copiado. Envíalo directamente a la persona invitada.', 'success');
+    } catch {
+      input.focus();
+      input.select();
+      showMessage('No se pudo copiar automáticamente. Selecciona y copia el enlace.', 'error');
+    }
+  });
+  invitationLink.append(label, input, copy);
+  input.focus();
+  input.select();
+}
+
+function renderInvitations() {
+  invitationCount.textContent = `${invitations.length} invitaciones recientes`;
+  invitationsTable.replaceChildren();
+
+  if (!invitations.length) {
+    const row = element('tr');
+    const cell = element('td', 'empty-state', 'Todavía no hay invitaciones.');
+    cell.colSpan = 5;
+    row.append(cell);
+    invitationsTable.append(row);
+    return;
+  }
+
+  const labels = {
+    pending: ['Pendiente', 'badge-pending'],
+    accepted: ['Aceptada', 'badge-active'],
+    revoked: ['Revocada', 'badge-suspended'],
+    expired: ['Vencida', 'badge-suspended'],
+  };
+  for (const invitation of invitations) {
+    const row = document.createElement('tr');
+    const nameCell = element('td', 'user-name', invitation.fullName);
+    const emailCell = element('td', '', invitation.email);
+    const expiresCell = element('td', '', new Date(invitation.expiresAt).toLocaleString());
+    const statusCell = element('td');
+    const [label, badge] = labels[invitation.status] || ['Desconocido', 'badge-suspended'];
+    statusCell.append(element('span', `badge ${badge}`, label));
+    const actionsCell = element('td');
+    const actions = element('div', 'row-actions');
+
+    if (invitation.status !== 'accepted') {
+      const renew = element('button', 'button button-secondary', 'Generar nuevo enlace');
+      renew.type = 'button';
+      renew.addEventListener('click', () => createInvitation({
+        email: invitation.email,
+        fullName: invitation.fullName,
+      }));
+      actions.append(renew);
+    }
+    if (invitation.status === 'pending') {
+      const revoke = element('button', 'button button-danger', 'Revocar');
+      revoke.type = 'button';
+      revoke.addEventListener('click', () => revokeInvitation(invitation));
+      actions.append(revoke);
+    }
+    actionsCell.append(actions);
+    row.append(nameCell, emailCell, expiresCell, statusCell, actionsCell);
+    invitationsTable.append(row);
+  }
+}
+
 async function loadUsers() {
   statusMessage.textContent = '';
   try {
@@ -96,11 +179,45 @@ async function loadUsers() {
       usersTable.replaceChildren();
       return;
     }
-    users = await requestJson('/api/auth/admin/users');
+    [users, invitations] = await Promise.all([
+      requestJson('/api/auth/admin/users'),
+      requestJson('/api/auth/admin/invitations'),
+    ]);
     renderUsers();
+    renderInvitations();
   } catch (error) {
     showMessage(error.message);
     usersTable.replaceChildren();
+    invitationsTable.replaceChildren();
+  }
+}
+
+async function createInvitation(values) {
+  try {
+    const result = await requestJson('/api/auth/admin/invitations', {
+      method: 'POST',
+      body: JSON.stringify(values),
+    });
+    showInvitationLink(result.invitationUrl);
+    showMessage(result.message, 'success');
+    invitations = await requestJson('/api/auth/admin/invitations');
+    renderInvitations();
+  } catch (error) {
+    showMessage(error.message);
+  }
+}
+
+async function revokeInvitation(invitation) {
+  if (!window.confirm(`¿Revocar la invitación de ${invitation.email}? El enlace dejará de funcionar.`)) return;
+  try {
+    await requestJson(`/api/auth/admin/invitations/${encodeURIComponent(invitation.id)}/revoke`, {
+      method: 'POST',
+    });
+    invitations = await requestJson('/api/auth/admin/invitations');
+    renderInvitations();
+    showMessage('Invitación revocada.', 'success');
+  } catch (error) {
+    showMessage(error.message);
   }
 }
 
@@ -149,6 +266,14 @@ async function deleteUser(user) {
 }
 
 userSearch.addEventListener('input', renderUsers);
+invitationForm.addEventListener('submit', event => {
+  event.preventDefault();
+  const formData = new FormData(invitationForm);
+  createInvitation({
+    fullName: String(formData.get('fullName') || '').trim(),
+    email: String(formData.get('email') || '').trim(),
+  });
+});
 document.getElementById('logoutButton').addEventListener('click', () => {
   if (window.confirm('¿Cerrar sesión?')) Auth.logout();
 });

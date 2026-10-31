@@ -10,7 +10,7 @@ process.env.SUPABASE_KEY = '';
 process.env.SUPABASE_ANON_KEY = '';
 
 const app = require('../app');
-const { setLocalUserRoleForTests } = require('../auth');
+const { createLocalUserForTests } = require('../auth');
 
 let server;
 let baseUrl;
@@ -39,15 +39,6 @@ async function request(path, { method = 'GET', body, token } = {}) {
   return { response, body: await response.json() };
 }
 
-async function register(email, fullName) {
-  const { response, body } = await request('/api/auth/register', {
-    method: 'POST',
-    body: { email, password: 'secure-test-password', fullName },
-  });
-  assert.equal(response.status, 201);
-  return body.user;
-}
-
 async function login(email) {
   const { response, body } = await request('/api/auth/login', {
     method: 'POST',
@@ -64,6 +55,9 @@ test('only admins can administer accounts, and account actions immediately affec
   assert.equal(adminStyle.status, 200);
   const adminScript = await fetch(`${baseUrl}/js/admin.js`);
   assert.equal(adminScript.status, 200);
+  const acceptPage = await fetch(`${baseUrl}/accept-invitation.html`);
+  assert.equal(acceptPage.status, 200);
+  assert.match(await acceptPage.text(), /mínimo 12 caracteres/);
 
   const docsResponse = await fetch(`${baseUrl}/api-docs.json`);
   const docs = await docsResponse.json();
@@ -72,6 +66,10 @@ test('only admins can administer accounts, and account actions immediately affec
     '/api/auth/admin/users/{id}/status',
     '/api/auth/admin/users/{id}/role',
     '/api/auth/admin/users/{id}',
+    '/api/auth/admin/invitations',
+    '/api/auth/admin/invitations/{id}/revoke',
+    '/api/auth/invitation/{token}',
+    '/api/auth/invitation/accept',
   ]) {
     assert.ok(docs.paths[path]);
   }
@@ -79,15 +77,99 @@ test('only admins can administer accounts, and account actions immediately affec
   const suffix = randomUUID();
   const adminEmail = `admin-${suffix}@example.com`;
   const memberEmail = `member-${suffix}@example.com`;
-  const admin = await register(adminEmail, 'Platform Admin');
-  const member = await register(memberEmail, 'Platform Member');
-
-  setLocalUserRoleForTests(admin.id, 'admin');
+  const admin = await createLocalUserForTests({
+    email: adminEmail,
+    password: 'secure-test-password',
+    fullName: 'Platform Admin',
+    role: 'admin',
+  });
   const adminToken = await login(adminEmail);
-  const memberToken = await login(memberEmail);
 
+  const publicRegistration = await request('/api/auth/register', {
+    method: 'POST',
+    body: { email: memberEmail, password: 'secure-test-password', fullName: 'Platform Member' },
+  });
+  assert.equal(publicRegistration.response.status, 403);
+  assert.equal(publicRegistration.body.code, 'INVITATION_REQUIRED');
   const unauthenticated = await request('/api/auth/admin/users');
   assert.equal(unauthenticated.response.status, 401);
+
+  const invitationForbidden = await request('/api/auth/admin/invitations', {
+    method: 'POST',
+    body: { email: memberEmail, fullName: 'Platform Member' },
+  });
+  assert.equal(invitationForbidden.response.status, 401);
+
+  const createdInvitation = await request('/api/auth/admin/invitations', {
+    method: 'POST',
+    body: { email: memberEmail, fullName: 'Platform Member' },
+    token: adminToken,
+  });
+  assert.equal(createdInvitation.response.status, 201);
+  assert.match(createdInvitation.body.invitationUrl, /accept-invitation\.html\?token=/);
+  const invitationToken = new URL(createdInvitation.body.invitationUrl).searchParams.get('token');
+  assert.match(invitationToken, /^[A-Za-z0-9_-]{43}$/);
+  assert.equal(Object.hasOwn(createdInvitation.body.invitation, 'token_hash'), false);
+
+  const invitationDetails = await request(`/api/auth/invitation/${invitationToken}`);
+  assert.equal(invitationDetails.response.status, 200);
+  assert.equal(invitationDetails.body.email, memberEmail);
+  const memberAccept = await request('/api/auth/invitation/accept', {
+    method: 'POST',
+    body: { token: invitationToken, password: 'secure-test-password' },
+  });
+  assert.equal(memberAccept.response.status, 201);
+  const member = memberAccept.body.user;
+  const memberToken = await login(memberEmail);
+  const memberInviteForbidden = await request('/api/auth/admin/invitations', {
+    method: 'POST',
+    body: { email: `forbidden-${suffix}@example.com`, fullName: 'Forbidden Invite' },
+    token: memberToken,
+  });
+  assert.equal(memberInviteForbidden.response.status, 403);
+
+  const listedInvitations = await request('/api/auth/admin/invitations', { token: adminToken });
+  assert.equal(listedInvitations.response.status, 200);
+  assert.ok(listedInvitations.body.some(invitation =>
+    invitation.id === createdInvitation.body.invitation.id && invitation.status === 'accepted'));
+  assert.ok(listedInvitations.body.every(invitation => !Object.hasOwn(invitation, 'token_hash')));
+
+  const reuseInvitation = await request('/api/auth/invitation/accept', {
+    method: 'POST',
+    body: { token: invitationToken, password: 'another-secure-password' },
+  });
+  assert.equal(reuseInvitation.response.status, 410);
+
+  const revocableInvitation = await request('/api/auth/admin/invitations', {
+    method: 'POST',
+    body: { email: `revoked-${suffix}@example.com`, fullName: 'Revoked User' },
+    token: adminToken,
+  });
+  assert.equal(revocableInvitation.response.status, 201);
+  const revokedToken = new URL(revocableInvitation.body.invitationUrl).searchParams.get('token');
+  const revoked = await request(`/api/auth/admin/invitations/${revocableInvitation.body.invitation.id}/revoke`, {
+    method: 'POST',
+    token: adminToken,
+  });
+  assert.equal(revoked.response.status, 200);
+  const revokedCheck = await request(`/api/auth/invitation/${revokedToken}`);
+  assert.equal(revokedCheck.response.status, 410);
+
+  const originalInvitation = await request('/api/auth/admin/invitations', {
+    method: 'POST',
+    body: { email: `renew-${suffix}@example.com`, fullName: 'Renewed User' },
+    token: adminToken,
+  });
+  const originalToken = new URL(originalInvitation.body.invitationUrl).searchParams.get('token');
+  const renewedInvitation = await request('/api/auth/admin/invitations', {
+    method: 'POST',
+    body: { email: `renew-${suffix}@example.com`, fullName: 'Renewed User' },
+    token: adminToken,
+  });
+  const renewedToken = new URL(renewedInvitation.body.invitationUrl).searchParams.get('token');
+  assert.notEqual(renewedToken, originalToken);
+  assert.equal((await request(`/api/auth/invitation/${originalToken}`)).response.status, 410);
+  assert.equal((await request(`/api/auth/invitation/${renewedToken}`)).response.status, 200);
 
   const forbidden = await request('/api/auth/admin/users', { token: memberToken });
   assert.equal(forbidden.response.status, 403);

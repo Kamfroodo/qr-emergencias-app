@@ -28,10 +28,17 @@ body { margin: 0; min-width: 320px; }
 h1 { margin: 0; font-size: clamp(2rem, 5vw, 2.6rem); }
 .intro > p:last-child { color: #5a667a; line-height: 1.6; }
 
-.user-panel { overflow: hidden; border: 1px solid #e0e6ef; border-radius: 14px; background: #fff; box-shadow: 0 12px 35px rgb(23 32 51 / 7%); }
+.user-panel { overflow: hidden; margin-bottom: 1.25rem; border: 1px solid #e0e6ef; border-radius: 14px; background: #fff; box-shadow: 0 12px 35px rgb(23 32 51 / 7%); }
 .panel-toolbar { display: flex; align-items: end; justify-content: space-between; gap: 1rem; padding: 1.25rem 1.5rem; }
 h2 { margin: 0; font-size: 1.2rem; }
 .user-count { margin: .35rem 0 0; color: #778399; font-size: .85rem; }
+.invitation-form { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(220px, 1fr) auto; align-items: end; gap: .8rem; padding: 0 1.5rem 1.25rem; }
+.invitation-form label, .invitation-link label { display: grid; gap: .4rem; color: #566176; font-size: .8rem; font-weight: 650; }
+.invitation-form input, .invitation-link input { width: 100%; min-height: 40px; padding: .5rem .75rem; border: 1px solid #ccd5e2; border-radius: 8px; font: inherit; }
+.invitation-link { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: .7rem; margin: 0 1.5rem 1.25rem; padding: 1rem; border: 1px solid #b9d8c8; border-radius: 10px; background: #f0faf4; }
+.invitation-link[hidden] { display: none; }
+.invitation-link label { grid-column: 1 / -1; color: #176b44; }
+.invitation-link input { font-size: .82rem; }
 .search-label { display: grid; gap: .35rem; min-width: min(290px, 100%); color: #566176; font-size: .78rem; font-weight: 650; }
 .search-label input { min-height: 40px; padding: .5rem .75rem; border: 1px solid #ccd5e2; border-radius: 8px; font: inherit; }
 
@@ -49,6 +56,7 @@ td { font-size: .88rem; }
 .badge { display: inline-flex; align-items: center; padding: .28rem .55rem; border-radius: 999px; font-size: .75rem; font-weight: 700; white-space: nowrap; }
 .badge-active { color: #176b44; background: #e6f6ed; }
 .badge-suspended { color: #a42635; background: #fdebed; }
+.badge-pending { color: #815a05; background: #fff3d4; }
 .role-control { display: flex; align-items: center; gap: .4rem; }
 .role-control select { min-height: 34px; padding: .3rem; border: 1px solid #ccd5e2; border-radius: 6px; background: #fff; }
 .row-actions { display: flex; flex-wrap: wrap; gap: .4rem; }
@@ -62,4 +70,6 @@ td { font-size: .88rem; }
 @media (max-width: 780px) {
   .admin-header, .panel-toolbar { align-items: stretch; flex-direction: column; }
   .header-actions { justify-content: flex-start; }
+  .invitation-form { grid-template-columns: 1fr; }
+  .invitation-link { grid-template-columns: 1fr; }
 }
