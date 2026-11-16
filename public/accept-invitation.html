@@ -4,109 +4,593 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex, nofollow">
-  <title>Aceptar invitación | QR Emergencias</title>
+  <title>Elige tu Plan y Activa tu Cuenta | QR Emergencias</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
   <style>
-    :root { color-scheme: light; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; color: #172033; background: #f3f6fb; }
-    * { box-sizing: border-box; }
-    body { display: grid; min-height: 100vh; margin: 0; place-items: center; padding: 1rem; }
-    main { width: min(100%, 440px); padding: 2rem; border: 1px solid #e0e6ef; border-radius: 16px; background: #fff; box-shadow: 0 16px 45px rgb(23 32 51 / 9%); }
-    h1 { margin: 0 0 .5rem; font-size: 1.6rem; }
-    p { color: #5a667a; line-height: 1.55; }
-    #inviteEmail { color: #172033; font-weight: 700; overflow-wrap: anywhere; }
-    label { display: grid; gap: .4rem; margin-top: 1rem; color: #566176; font-size: .9rem; font-weight: 650; }
-    input { min-height: 44px; padding: .65rem .75rem; border: 1px solid #ccd5e2; border-radius: 8px; font: inherit; }
-    button { width: 100%; min-height: 44px; margin-top: 1.25rem; border: 0; border-radius: 8px; color: #fff; background: #2e5aac; cursor: pointer; font: inherit; font-weight: 700; }
-    button:disabled { cursor: wait; opacity: .65; }
-    #message { min-height: 1.5rem; margin: 1rem 0 0; }
-    #message.error { color: #b42335; }
-    #message.success { color: #18764b; }
-    #acceptForm[hidden] { display: none; }
-    a { color: #2e5aac; }
+    :root {
+      --bg-base: #070d18;
+      --bg-card: #0d1729;
+      --bg-card-hover: #121f36;
+      --border-card: #1e2c47;
+      --primary: #ef233c;
+      --primary-hover: #ff334f;
+      --primary-glow: rgba(239, 35, 60, 0.35);
+      --accent-gradient: linear-gradient(135deg, #ff3366 0%, #ef233c 100%);
+      --text-main: #f8fafc;
+      --text-muted: #94a3b8;
+      --text-subtle: #64748b;
+      --success: #10b981;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      background-color: var(--bg-base);
+      color: var(--text-main);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 2rem 1rem;
+      position: relative;
+      overflow-x: hidden;
+    }
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background:
+        radial-gradient(ellipse 70% 50% at 50% 0%, rgba(239, 35, 60, 0.12) 0%, transparent 60%),
+        radial-gradient(ellipse 60% 40% at 85% 95%, rgba(59, 130, 246, 0.08) 0%, transparent 50%);
+      pointer-events: none;
+      z-index: 0;
+    }
+    .container {
+      position: relative;
+      z-index: 1;
+      width: 100%;
+      max-width: 720px;
+      margin: 0 auto;
+    }
+    /* Brand Header */
+    .brand-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 1.5rem;
+      padding-bottom: 1rem;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+    }
+    .brand-logo {
+      font-weight: 900;
+      letter-spacing: 0.15em;
+      font-size: 1.1rem;
+      color: #ffffff;
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+    .brand-badge {
+      font-size: 0.75rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      padding: 0.3rem 0.75rem;
+      border-radius: 999px;
+      border: 1px solid rgba(239, 35, 60, 0.6);
+      color: #ff4d6d;
+      background: rgba(239, 35, 60, 0.1);
+      text-transform: uppercase;
+    }
+    /* Main Headings */
+    .hero-title {
+      font-size: 2.2rem;
+      font-weight: 900;
+      line-height: 1.15;
+      text-align: center;
+      margin-bottom: 0.6rem;
+      letter-spacing: -0.02em;
+    }
+    .highlight-pink {
+      background: var(--accent-gradient);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      display: inline-block;
+    }
+    .hero-subtitle {
+      text-align: center;
+      color: var(--text-muted);
+      font-size: 1.05rem;
+      margin-bottom: 2rem;
+    }
+    /* Status banner */
+    .status-box {
+      background: rgba(13, 23, 41, 0.8);
+      border: 1px solid var(--border-card);
+      border-radius: 12px;
+      padding: 1.25rem;
+      text-align: center;
+      margin-bottom: 1.5rem;
+    }
+    .status-box.error {
+      border-color: rgba(239, 35, 60, 0.5);
+      background: rgba(239, 35, 60, 0.1);
+      color: #ff6b81;
+    }
+    /* Plans Grid */
+    .plans-grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 1.1rem;
+      margin-bottom: 2rem;
+    }
+    .plan-card {
+      background: var(--bg-card);
+      border: 2px solid var(--border-card);
+      border-radius: 16px;
+      padding: 1.25rem 1.5rem;
+      cursor: pointer;
+      transition: all 0.25s ease;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: relative;
+      user-select: none;
+    }
+    .plan-card:hover {
+      border-color: rgba(239, 35, 60, 0.5);
+      background: var(--bg-card-hover);
+      transform: translateY(-2px);
+    }
+    .plan-card.selected {
+      border-color: var(--primary);
+      background: linear-gradient(135deg, rgba(239, 35, 60, 0.12) 0%, rgba(13, 23, 41, 0.95) 100%);
+      box-shadow: 0 0 25px var(--primary-glow);
+    }
+    .plan-info {
+      flex: 1;
+      padding-right: 1rem;
+    }
+    .plan-tag {
+      font-size: 0.72rem;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: #94a3b8;
+      margin-bottom: 0.25rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .plan-badge-pill {
+      font-size: 0.68rem;
+      padding: 0.2rem 0.5rem;
+      background: rgba(239, 35, 60, 0.2);
+      border: 1px solid rgba(239, 35, 60, 0.5);
+      color: #ff4d6d;
+      border-radius: 999px;
+      text-transform: none;
+      font-weight: 700;
+    }
+    .plan-name {
+      font-size: 1.4rem;
+      font-weight: 800;
+      color: #ffffff;
+      margin-bottom: 0.35rem;
+    }
+    .plan-features {
+      font-size: 0.88rem;
+      color: #94a3b8;
+      line-height: 1.4;
+    }
+    .plan-pricing {
+      text-align: right;
+      min-width: 140px;
+    }
+    .plan-price {
+      font-size: 1.6rem;
+      font-weight: 900;
+      color: #ffffff;
+      letter-spacing: -0.02em;
+    }
+    .plan-cycle {
+      font-size: 0.8rem;
+      color: #94a3b8;
+      font-weight: 500;
+    }
+    .plan-check {
+      width: 26px;
+      height: 26px;
+      border-radius: 50%;
+      border: 2px solid #334155;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-left: 1rem;
+      transition: all 0.2s ease;
+      font-size: 0.85rem;
+      color: transparent;
+      flex-shrink: 0;
+    }
+    .plan-card.selected .plan-check {
+      background: var(--primary);
+      border-color: var(--primary);
+      color: #ffffff;
+      box-shadow: 0 0 10px var(--primary-glow);
+    }
+    /* Password Form */
+    .activation-box {
+      background: var(--bg-card);
+      border: 1px solid var(--border-card);
+      border-radius: 16px;
+      padding: 1.75rem;
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.4);
+    }
+    .activation-header {
+      margin-bottom: 1.25rem;
+    }
+    .activation-header h2 {
+      font-size: 1.25rem;
+      font-weight: 700;
+      margin-bottom: 0.35rem;
+    }
+    .activation-header p {
+      font-size: 0.9rem;
+      color: var(--text-muted);
+    }
+    .user-pill {
+      color: #ffffff;
+      font-weight: 700;
+      background: rgba(255, 255, 255, 0.08);
+      padding: 0.15rem 0.5rem;
+      border-radius: 6px;
+    }
+    .form-group {
+      margin-bottom: 1.1rem;
+    }
+    label {
+      display: block;
+      font-size: 0.82rem;
+      font-weight: 600;
+      color: #cbd5e1;
+      margin-bottom: 0.4rem;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .input-wrap {
+      position: relative;
+    }
+    input {
+      width: 100%;
+      min-height: 46px;
+      padding: 0.75rem 1rem;
+      background: rgba(0, 0, 0, 0.35);
+      border: 1px solid var(--border-card);
+      border-radius: 10px;
+      color: #ffffff;
+      font-size: 0.95rem;
+      font-family: inherit;
+      transition: all 0.2s ease;
+      outline: none;
+    }
+    input:focus {
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px var(--primary-glow);
+    }
+    .btn-submit {
+      width: 100%;
+      min-height: 50px;
+      margin-top: 1.25rem;
+      background: linear-gradient(135deg, var(--primary) 0%, #c71729 100%);
+      border: 0;
+      border-radius: 10px;
+      color: #ffffff;
+      font-size: 1.05rem;
+      font-weight: 800;
+      font-family: inherit;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      box-shadow: 0 4px 20px var(--primary-glow);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+    }
+    .btn-submit:hover:not(:disabled) {
+      background: linear-gradient(135deg, var(--primary-hover) 0%, #dc1428 100%);
+      transform: translateY(-1px);
+      box-shadow: 0 6px 25px rgba(239, 35, 60, 0.5);
+    }
+    .btn-submit:disabled {
+      opacity: 0.6;
+      cursor: wait;
+    }
+    .message-box {
+      margin-top: 1rem;
+      padding: 0.75rem 1rem;
+      border-radius: 8px;
+      font-size: 0.88rem;
+      text-align: center;
+      display: none;
+    }
+    .message-box.error {
+      display: block;
+      background: rgba(244, 63, 94, 0.15);
+      border: 1px solid rgba(244, 63, 94, 0.4);
+      color: #ff8093;
+    }
+    .message-box.success {
+      display: block;
+      background: rgba(16, 185, 129, 0.15);
+      border: 1px solid rgba(16, 185, 129, 0.4);
+      color: #34d399;
+    }
+    .footer-guarantee {
+      margin-top: 2rem;
+      text-align: center;
+      font-size: 0.85rem;
+      color: var(--text-subtle);
+      line-height: 1.6;
+    }
+    .footer-links {
+      margin-top: 1.25rem;
+      text-align: center;
+    }
+    .footer-links a {
+      color: #94a3b8;
+      text-decoration: none;
+      font-size: 0.85rem;
+      transition: color 0.2s;
+    }
+    .footer-links a:hover {
+      color: #ffffff;
+      text-decoration: underline;
+    }
+    @media (max-width: 600px) {
+      .hero-title { font-size: 1.7rem; }
+      .plan-card { flex-direction: column; align-items: flex-start; gap: 0.8rem; }
+      .plan-pricing { text-align: left; }
+      .plan-check { position: absolute; top: 1.25rem; right: 1.25rem; }
+    }
   </style>
 </head>
 <body>
-  <main>
-    <h1>Activa tu cuenta</h1>
-    <p id="inviteSummary">Estamos comprobando tu invitación…</p>
-    <form id="acceptForm" hidden>
-      <label for="password">Crea una contraseña (mínimo 12 caracteres)
-        <input id="password" name="password" type="password" minlength="12" autocomplete="new-password" required>
-      </label>
-      <label for="confirmPassword">Confirma tu contraseña
-        <input id="confirmPassword" name="confirmPassword" type="password" minlength="12" autocomplete="new-password" required>
-      </label>
-      <button id="submitButton" type="submit">Crear cuenta</button>
-    </form>
-    <p id="message" role="status" aria-live="polite"></p>
-    <a href="/login.html">Volver al inicio de sesión</a>
-  </main>
+  <div class="container">
+    <!-- Brand Header -->
+    <header class="brand-bar">
+      <div class="brand-logo">
+        <span>🚑</span> DASHLAB
+      </div>
+      <div class="brand-badge">QR EMERGENCIAS</div>
+    </header>
+
+    <!-- Hero Title -->
+    <h1 class="hero-title">Elige el plan <span class="highlight-pink">ideal</span> para ti.</h1>
+    <p class="hero-subtitle">Protege a quienes más quieres con su ficha médica en un QR.</p>
+
+    <!-- Status / Loading -->
+    <div id="statusBox" class="status-box">
+      <p id="statusMessage">Verificando tu enlace de invitación…</p>
+    </div>
+
+    <!-- Main Content (Shown if invitation valid) -->
+    <div id="invitationContent" style="display: none;">
+      <!-- Planes seleccionables -->
+      <div class="plans-grid">
+        <!-- PLAN 1: INDIVIDUAL -->
+        <div class="plan-card" data-plan="individual">
+          <div class="plan-info">
+            <div class="plan-tag">POR UN AÑO</div>
+            <div class="plan-name">Individual</div>
+            <div class="plan-features">1 ficha médica · 1 QR · 1 contacto · Soporte</div>
+          </div>
+          <div class="plan-pricing">
+            <div class="plan-price">$5.000</div>
+            <div class="plan-cycle">por año</div>
+          </div>
+          <div class="plan-check">✓</div>
+        </div>
+
+        <!-- PLAN 2: FAMILIAR (DEFAULT) -->
+        <div class="plan-card selected" data-plan="familiar">
+          <div class="plan-info">
+            <div class="plan-tag">PLAN</div>
+            <div class="plan-name">Familiar</div>
+            <div class="plan-features">5 fichas médicas · 5 QR personalizados · 5 contactos</div>
+          </div>
+          <div class="plan-pricing">
+            <div class="plan-price">$19.990</div>
+            <div class="plan-cycle">por año</div>
+          </div>
+          <div class="plan-check">✓</div>
+        </div>
+
+        <!-- PLAN 3: INSTITUCIÓN -->
+        <div class="plan-card" data-plan="institucion">
+          <div class="plan-info">
+            <div class="plan-tag">PLAN <span class="plan-badge-pill">Precio conversable</span></div>
+            <div class="plan-name">Institución</div>
+            <div class="plan-features">100 fichas · 100 QR personalizados · 100 contactos</div>
+          </div>
+          <div class="plan-pricing">
+            <div class="plan-price">$180.990</div>
+            <div class="plan-cycle">por 6 meses</div>
+          </div>
+          <div class="plan-check">✓</div>
+        </div>
+      </div>
+
+      <!-- Formulario de contraseña -->
+      <div class="activation-box">
+        <div class="activation-header">
+          <h2>Activa tu cuenta</h2>
+          <p>Invitación verificada para: <span id="userEmail" class="user-pill"></span></p>
+        </div>
+
+        <form id="activationForm" novalidate>
+          <div class="form-group">
+            <label for="password">Crea una contraseña segura (mínimo 12 caracteres)</label>
+            <div class="input-wrap">
+              <input
+                id="password"
+                name="password"
+                type="password"
+                minlength="12"
+                autocomplete="new-password"
+                placeholder="Ingresa tu contraseña"
+                required
+              >
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="confirmPassword">Confirma tu contraseña</label>
+            <div class="input-wrap">
+              <input
+                id="confirmPassword"
+                name="confirmPassword"
+                type="password"
+                minlength="12"
+                autocomplete="new-password"
+                placeholder="Repite tu contraseña"
+                required
+              >
+            </div>
+          </div>
+
+          <button id="btnSubmit" class="btn-submit" type="submit">
+            <span>🚀 Activar Cuenta con Plan Familiar</span>
+          </button>
+        </form>
+
+        <div id="alertBox" class="message-box"></div>
+      </div>
+
+      <!-- Footer Guarantee -->
+      <div class="footer-guarantee">
+        <p><strong>Todos los planes incluyen cifrado seguro.</strong></p>
+        <p>Los precios para instituciones son conversables · @Dashboard.informaticos</p>
+      </div>
+    </div>
+
+    <div class="footer-links">
+      <a href="/login.html">← ¿Ya tienes una cuenta? Inicia sesión aquí</a>
+    </div>
+  </div>
+
   <script>
     const token = new URLSearchParams(location.search).get('token');
     history.replaceState(null, '', location.pathname);
-    const form = document.getElementById('acceptForm');
-    const message = document.getElementById('message');
-    const summary = document.getElementById('inviteSummary');
 
-    function showError(text) {
-      message.textContent = text;
-      message.className = 'error';
+    const statusBox = document.getElementById('statusBox');
+    const statusMessage = document.getElementById('statusMessage');
+    const invitationContent = document.getElementById('invitationContent');
+    const userEmailSpan = document.getElementById('userEmail');
+    const form = document.getElementById('activationForm');
+    const btnSubmit = document.getElementById('btnSubmit');
+    const alertBox = document.getElementById('alertBox');
+    const planCards = document.querySelectorAll('.plan-card');
+
+    let selectedPlan = 'familiar';
+
+    const planLabels = {
+      individual: 'Plan Individual ($5.000 / año)',
+      familiar: 'Plan Familiar ($19.990 / año)',
+      institucion: 'Plan Institución ($180.990 / 6 meses)'
+    };
+
+    function updateSubmitButton() {
+      btnSubmit.innerHTML = `<span>🚀 Activar Cuenta con ${planLabels[selectedPlan] || 'tu Plan'}</span>`;
     }
 
-    async function validateInvitation() {
+    planCards.forEach(card => {
+      card.addEventListener('click', () => {
+        planCards.forEach(c => c.classList.remove('selected'));
+        card.classList.add('selected');
+        selectedPlan = card.dataset.plan;
+        updateSubmitButton();
+      });
+    });
+
+    function showAlert(text, type = 'error') {
+      alertBox.textContent = text;
+      alertBox.className = `message-box ${type}`;
+    }
+
+    async function checkInvitation() {
       if (!token) {
-        summary.textContent = 'El enlace no contiene un token de invitación.';
+        statusBox.className = 'status-box error';
+        statusMessage.textContent = 'Enlace inválido o incompleto. Solicita una nueva invitación al administrador.';
         return;
       }
       try {
         const response = await fetch(`/api/auth/invitation/${encodeURIComponent(token)}`);
         const result = await response.json();
         if (!response.ok) {
-          summary.textContent = result.error || 'No se pudo validar la invitación.';
+          statusBox.className = 'status-box error';
+          statusMessage.textContent = result.error || 'La invitación ha expirado o ya no está disponible.';
           return;
         }
-        summary.textContent = 'Invitación para ';
-        const email = document.createElement('span');
-        email.id = 'inviteEmail';
-        email.textContent = result.email;
-        summary.append(email, '. Define una contraseña para activar tu cuenta.');
-        form.hidden = false;
-      } catch {
-        summary.textContent = 'No se pudo conectar con el servidor. Inténtalo nuevamente.';
+        statusBox.style.display = 'none';
+        userEmailSpan.textContent = result.email;
+        invitationContent.style.display = 'block';
+        updateSubmitButton();
+      } catch (err) {
+        statusBox.className = 'status-box error';
+        statusMessage.textContent = 'No se pudo conectar con el servidor. Verifica tu conexión e inténtalo nuevamente.';
       }
     }
 
     form.addEventListener('submit', async event => {
       event.preventDefault();
-      message.textContent = '';
+      alertBox.style.display = 'none';
+
       const password = document.getElementById('password').value;
       const confirmPassword = document.getElementById('confirmPassword').value;
-      if (password.length < 12) return showError('La contraseña debe tener al menos 12 caracteres.');
-      if (password !== confirmPassword) return showError('Las contraseñas no coinciden.');
 
-      const button = document.getElementById('submitButton');
-      button.disabled = true;
+      if (!password || password.length < 12) {
+        return showAlert('La contraseña debe tener al menos 12 caracteres por seguridad.');
+      }
+      if (password !== confirmPassword) {
+        return showAlert('Las contraseñas no coinciden. Por favor verifícalas.');
+      }
+
+      btnSubmit.disabled = true;
+      btnSubmit.textContent = 'Activando cuenta y configurando plan…';
+
       try {
         const response = await fetch('/api/auth/invitation/accept', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ token, password }),
+          body: JSON.stringify({
+            token,
+            password,
+            plan: selectedPlan
+          }),
         });
+
         const result = await response.json();
-        if (!response.ok) return showError(result.error || 'No se pudo activar la cuenta.');
-        message.textContent = `${result.message} Redirigiendo al inicio de sesión…`;
-        message.className = 'success';
+        if (!response.ok) {
+          btnSubmit.disabled = false;
+          updateSubmitButton();
+          return showAlert(result.error || 'No se pudo activar la cuenta.');
+        }
+
+        showAlert(`¡Cuenta activada con éxito con el ${planLabels[selectedPlan]}! Redirigiendo al inicio de sesión…`, 'success');
         form.reset();
+
         setTimeout(() => {
           location.replace(`/login.html?email=${encodeURIComponent(result.user.email)}`);
         }, 1800);
       } catch {
-        showError('No se pudo conectar con el servidor. Inténtalo nuevamente.');
-      } finally {
-        button.disabled = false;
+        btnSubmit.disabled = false;
+        updateSubmitButton();
+        showAlert('Error de conexión con el servidor. Inténtalo nuevamente.');
       }
     });
 
-    validateInvitation();
+    checkInvitation();
   </script>
 </body>
 </html>

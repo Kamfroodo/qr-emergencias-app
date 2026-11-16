@@ -66,9 +66,11 @@ test('only admins can administer accounts, and account actions immediately affec
     '/api/auth/admin/users',
     '/api/auth/admin/users/{id}/status',
     '/api/auth/admin/users/{id}/role',
+    '/api/auth/admin/users/{id}/limits',
     '/api/auth/admin/users/{id}',
     '/api/auth/admin/invitations',
     '/api/auth/admin/invitations/{id}/revoke',
+    '/api/auth/admin/invitations/{id}',
     '/api/auth/invitation/{token}',
     '/api/auth/invitation/accept',
     '/api/admin/profiles',
@@ -137,6 +139,11 @@ test('only admins can administer accounts, and account actions immediately affec
   assert.ok(listedInvitations.body.some(invitation =>
     invitation.id === createdInvitation.body.invitation.id && invitation.status === 'accepted'));
   assert.ok(listedInvitations.body.every(invitation => !Object.hasOwn(invitation, 'token_hash')));
+  const memberCannotDeleteInvitation = await request(`/api/auth/admin/invitations/${createdInvitation.body.invitation.id}`, {
+    method: 'DELETE',
+    token: memberToken,
+  });
+  assert.equal(memberCannotDeleteInvitation.response.status, 403);
 
   const reuseInvitation = await request('/api/auth/invitation/accept', {
     method: 'POST',
@@ -182,6 +189,7 @@ test('only admins can administer accounts, and account actions immediately affec
   assert.equal(listed.response.status, 200);
   assert.ok(listed.body.some(user => user.id === member.id));
   assert.ok(listed.body.every(user => !Object.hasOwn(user, 'password_hash')));
+  assert.ok(listed.body.find(user => user.id === member.id).maxProfiles === null);
 
   const selfRole = await request(`/api/auth/admin/users/${admin.id}/role`, {
     method: 'PATCH',
@@ -236,6 +244,11 @@ test('only admins can administer accounts, and account actions immediately affec
   assert.ok(listedMedicalProfiles.body.some(profile =>
     profile.id === createProfile.body.id && profile.ownerUserId === member.id));
   assert.ok(listedMedicalProfiles.body.every(profile => !Object.hasOwn(profile, 'allergies')));
+  const memberCannotDeleteMedicalProfile = await request(`/api/admin/profiles/${secondProfile.body.id}`, {
+    method: 'DELETE',
+    token: memberToken,
+  });
+  assert.equal(memberCannotDeleteMedicalProfile.response.status, 403);
   const adminProfile = await request(`/api/admin/profiles/${createProfile.body.id}`, { token: adminToken });
   assert.equal(adminProfile.response.status, 200);
   assert.deepEqual(adminProfile.body.allergies, ['Pollen']);
@@ -256,6 +269,68 @@ test('only admins can administer accounts, and account actions immediately affec
   assert.equal(downloadableQr.status, 200);
   assert.match(downloadableQr.headers.get('content-type'), /image\/png/);
   assert.ok((await downloadableQr.arrayBuffer()).byteLength > 100);
+
+  const invalidQuota = await request(`/api/auth/admin/users/${member.id}/limits`, {
+    method: 'PATCH',
+    body: { maxProfiles: 0, accountExpiresAt: null },
+    token: adminToken,
+  });
+  assert.equal(invalidQuota.response.status, 400);
+  const assignedQuota = await request(`/api/auth/admin/users/${member.id}/limits`, {
+    method: 'PATCH',
+    body: { maxProfiles: 2, accountExpiresAt: null },
+    token: adminToken,
+  });
+  assert.equal(assignedQuota.response.status, 200);
+  assert.equal(assignedQuota.body.maxProfiles, 2);
+  const profileOverQuota = await request('/api/profiles', {
+    method: 'POST',
+    body: { fullName: 'Profile Over Quota', bloodType: 'O+' },
+    token: memberToken,
+  });
+  assert.equal(profileOverQuota.response.status, 409);
+  assert.equal(profileOverQuota.body.code, 'PROFILE_LIMIT_REACHED');
+
+  const deletedMedicalProfile = await request(`/api/admin/profiles/${secondProfile.body.id}`, {
+    method: 'DELETE',
+    token: adminToken,
+  });
+  assert.equal(deletedMedicalProfile.response.status, 200);
+  const deletedMedicalProfileMissing = await request(`/api/admin/profiles/${secondProfile.body.id}`, {
+    method: 'DELETE',
+    token: adminToken,
+  });
+  assert.equal(deletedMedicalProfileMissing.response.status, 404);
+  const oneProfileQuota = await request(`/api/auth/admin/users/${member.id}/limits`, {
+    method: 'PATCH',
+    body: { maxProfiles: 1, accountExpiresAt: null },
+    token: adminToken,
+  });
+  assert.equal(oneProfileQuota.response.status, 200);
+  const oneExistingProfile = await request('/api/profiles', { token: memberToken });
+  assert.equal(oneExistingProfile.body.length, 1);
+  const expiredAccount = await request(`/api/auth/admin/users/${member.id}/limits`, {
+    method: 'PATCH',
+    body: { maxProfiles: 1, accountExpiresAt: '2000-01-01' },
+    token: adminToken,
+  });
+  assert.equal(expiredAccount.response.status, 200);
+  const expiredSession = await request('/api/profiles', { token: memberToken });
+  assert.equal(expiredSession.response.status, 403);
+  assert.equal(expiredSession.body.code, 'ACCOUNT_EXPIRED');
+  const expiredLogin = await request('/api/auth/login', {
+    method: 'POST',
+    body: { email: memberEmail, password: 'secure-test-password' },
+  });
+  assert.equal(expiredLogin.response.status, 403);
+  const renewAccount = await request(`/api/auth/admin/users/${member.id}/limits`, {
+    method: 'PATCH',
+    body: { maxProfiles: null, accountExpiresAt: null },
+    token: adminToken,
+  });
+  assert.equal(renewAccount.response.status, 200);
+  assert.equal(renewAccount.body.maxProfiles, null);
+  assert.equal(renewAccount.body.accountExpiresAt, null);
 
   const suspended = await request(`/api/auth/admin/users/${member.id}/status`, {
     method: 'PATCH',
@@ -297,6 +372,20 @@ test('only admins can administer accounts, and account actions immediately affec
   });
   assert.equal(deleted.response.status, 200);
   assert.match(deleted.body.message, /perfiles asociados eliminados/);
+  const deleteAcceptedInvitation = await request(`/api/auth/admin/invitations/${createdInvitation.body.invitation.id}`, {
+    method: 'DELETE',
+    token: adminToken,
+  });
+  assert.equal(deleteAcceptedInvitation.response.status, 200);
+  assert.match(deleteAcceptedInvitation.body.message, /cuenta.*no fue modificada/);
+  const acceptedInvitationRemoved = await request('/api/auth/admin/invitations', { token: adminToken });
+  assert.ok(acceptedInvitationRemoved.body.every(invitation =>
+    invitation.id !== createdInvitation.body.invitation.id));
+  const alreadyDeletedInvitation = await request(`/api/auth/admin/invitations/${createdInvitation.body.invitation.id}`, {
+    method: 'DELETE',
+    token: adminToken,
+  });
+  assert.equal(alreadyDeletedInvitation.response.status, 404);
 
   const deletedAccountCannotLogin = await request('/api/auth/login', {
     method: 'POST',

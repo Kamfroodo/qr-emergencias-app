@@ -55,7 +55,7 @@ function renderUsers() {
   if (filtered.length === 0) {
     const row = element('tr');
     const cell = element('td', 'empty-state', users.length ? 'No hay coincidencias.' : 'No hay usuarios registrados.');
-    cell.colSpan = 6;
+    cell.colSpan = 7;
     row.append(cell);
     usersTable.append(row);
     return;
@@ -89,6 +89,71 @@ function renderUsers() {
     roleControl.append(roleSelect, saveRole);
     roleCell.append(roleControl);
 
+    const profileCount = medicalProfiles.filter(profile => profile.ownerUserId === user.id).length;
+    const limitsCell = element('td');
+    const limitControls = element('div', 'limit-controls');
+
+    const planSelect = document.createElement('select');
+    planSelect.setAttribute('aria-label', `Elegir plan para ${user.email}`);
+    const planOptions = [
+      ['', '⚡ Asignar plan rápido...'],
+      ['individual', 'Individual (1 ficha · 1 año)'],
+      ['familiar', 'Familiar (5 fichas · 1 año)'],
+      ['institucion', 'Institución (100 fichas · 6 meses)'],
+      ['unlimited', 'Ilimitado (Sin vencimiento)'],
+    ];
+    for (const [val, label] of planOptions) {
+      const opt = element('option', '', label);
+      opt.value = val;
+      planSelect.append(opt);
+    }
+
+    const maxProfilesInput = document.createElement('input');
+    maxProfilesInput.type = 'number';
+    maxProfilesInput.min = '1';
+    maxProfilesInput.max = '10000';
+    maxProfilesInput.placeholder = 'Fichas (ej: 1, 5, 100)';
+    maxProfilesInput.value = user.maxProfiles ?? '';
+    maxProfilesInput.setAttribute('aria-label', `Máximo de fichas para ${user.email}`);
+
+    const expiresInput = document.createElement('input');
+    expiresInput.type = 'date';
+    expiresInput.value = user.accountExpiresAt ? user.accountExpiresAt.slice(0, 10) : '';
+    expiresInput.setAttribute('aria-label', `Vencimiento de cuenta para ${user.email}`);
+
+    planSelect.addEventListener('change', () => {
+      const targetDate = new Date();
+      if (planSelect.value === 'individual') {
+        maxProfilesInput.value = 1;
+        targetDate.setFullYear(targetDate.getFullYear() + 1);
+        expiresInput.value = targetDate.toISOString().slice(0, 10);
+      } else if (planSelect.value === 'familiar') {
+        maxProfilesInput.value = 5;
+        targetDate.setFullYear(targetDate.getFullYear() + 1);
+        expiresInput.value = targetDate.toISOString().slice(0, 10);
+      } else if (planSelect.value === 'institucion') {
+        maxProfilesInput.value = 100;
+        targetDate.setMonth(targetDate.getMonth() + 6);
+        expiresInput.value = targetDate.toISOString().slice(0, 10);
+      } else if (planSelect.value === 'unlimited') {
+        maxProfilesInput.value = '';
+        expiresInput.value = '';
+      }
+    });
+
+    const isExpired = user.accountExpiresAt && new Date(user.accountExpiresAt).getTime() <= Date.now();
+    const expiresLabel = user.accountExpiresAt
+      ? `${isExpired ? '⚠️ Vencida' : 'Vence'} ${new Date(user.accountExpiresAt).toLocaleDateString()}`
+      : 'Sin vencimiento';
+    const usage = element('span', isExpired ? 'badge badge-suspended' : 'muted', `${profileCount} de ${user.maxProfiles ?? '∞'} fichas · ${expiresLabel}`);
+
+    const saveLimits = element('button', 'button button-primary', 'Guardar límites');
+    saveLimits.type = 'button';
+    saveLimits.addEventListener('click', () => saveUserLimits(user, maxProfilesInput.value, expiresInput.value));
+
+    limitControls.append(planSelect, maxProfilesInput, expiresInput, usage, saveLimits);
+    limitsCell.append(limitControls);
+
     const actionCell = element('td');
     const actions = element('div', 'row-actions');
     const statusButton = element('button', `button ${user.isActive ? 'button-secondary' : 'button-primary'}`, user.isActive ? 'Suspender' : 'Reactivar');
@@ -102,7 +167,7 @@ function renderUsers() {
     actions.append(statusButton, deleteButton);
     actionCell.append(actions);
 
-    row.append(nameCell, emailCell, createdCell, statusCell, roleCell, actionCell);
+    row.append(nameCell, emailCell, createdCell, statusCell, roleCell, limitsCell, actionCell);
     usersTable.append(row);
   }
 }
@@ -179,6 +244,11 @@ function renderInvitations() {
       revoke.addEventListener('click', () => revokeInvitation(invitation));
       actions.append(revoke);
     }
+    const remove = element('button', 'button button-danger', '🗑️ Eliminar');
+    remove.type = 'button';
+    remove.title = 'Eliminar este registro del historial de invitaciones';
+    remove.addEventListener('click', () => deleteInvitation(invitation));
+    actions.append(remove);
     actionsCell.append(actions);
     row.append(nameCell, emailCell, expiresCell, statusCell, actionsCell);
     invitationsTable.append(row);
@@ -221,7 +291,10 @@ function renderMedicalProfiles() {
     const qrButton = element('button', 'button button-primary', 'Código QR');
     qrButton.type = 'button';
     qrButton.addEventListener('click', () => showProfileQr(profile));
-    actionGroup.append(viewButton, qrButton);
+    const deleteButton = element('button', 'button button-danger', 'Eliminar');
+    deleteButton.type = 'button';
+    deleteButton.addEventListener('click', () => deleteMedicalProfile(profile));
+    actionGroup.append(viewButton, qrButton, deleteButton);
     actions.append(actionGroup);
     row.append(actions);
     medicalProfilesTable.append(row);
@@ -243,6 +316,7 @@ async function loadMedicalProfile(profileId) {
   try {
     const profile = await requestJson(`/api/admin/profiles/${encodeURIComponent(profileId)}`);
     medicalProfileDetails.replaceChildren();
+    medicalProfileDetails.dataset.profileId = profileId;
     medicalProfileDetails.hidden = false;
     const heading = element('h2', '', `Ficha médica · ${profile.fullName || 'Paciente'}`);
     const close = element('button', 'button button-secondary', 'Cerrar ficha');
@@ -250,6 +324,7 @@ async function loadMedicalProfile(profileId) {
     close.addEventListener('click', () => {
       medicalProfileDetails.hidden = true;
       medicalProfileDetails.replaceChildren();
+      delete medicalProfileDetails.dataset.profileId;
     });
     const header = element('div', 'panel-toolbar');
     header.append(heading, close);
@@ -321,7 +396,7 @@ async function loadUsers() {
       users = results[0].value;
       renderUsers();
     } else {
-      showTableError(usersTable, 6, 'No se pudieron cargar las cuentas.');
+      showTableError(usersTable, 7, 'No se pudieron cargar las cuentas.');
       failures.push(results[0].reason.message);
     }
 
@@ -336,6 +411,7 @@ async function loadUsers() {
     if (results[2].status === 'fulfilled') {
       medicalProfiles = results[2].value;
       renderMedicalProfiles();
+      if (results[0].status === 'fulfilled') renderUsers();
     } else {
       showTableError(medicalProfilesTable, 4, 'No se pudieron cargar las fichas médicas. Revisa la conexión con la base de datos.');
       failures.push(results[2].reason.message);
@@ -343,7 +419,7 @@ async function loadUsers() {
     if (failures.length) showMessage(failures.join(' '));
   } catch (error) {
     showMessage(error.message);
-    showTableError(usersTable, 6, error.message);
+    showTableError(usersTable, 7, error.message);
     showTableError(invitationsTable, 5, error.message);
     showTableError(medicalProfilesTable, 4, error.message);
   }
@@ -378,6 +454,90 @@ async function revokeInvitation(invitation) {
   }
 }
 
+async function deleteInvitation(invitation) {
+  if (!window.confirm(`¿Eliminar el registro de invitación de ${invitation.email}? Esta acción no elimina una cuenta de usuario.`)) return;
+  try {
+    await requestJson(`/api/auth/admin/invitations/${encodeURIComponent(invitation.id)}`, { method: 'DELETE' });
+    invitations = invitations.filter(entry => entry.id !== invitation.id);
+    renderInvitations();
+    showMessage('Registro de invitación eliminado.', 'success');
+  } catch (error) {
+    showMessage(error.message);
+  }
+}
+
+async function cleanExpiredInvitations() {
+  const expired = invitations.filter(inv => inv.status === 'expired');
+  if (!expired.length) {
+    showMessage('No hay invitaciones vencidas para limpiar.', 'success');
+    return;
+  }
+  if (!window.confirm(`¿Seguro que deseas eliminar las ${expired.length} invitaciones vencidas del registro?`)) return;
+  try {
+    let deletedCount = 0;
+    for (const inv of expired) {
+      try {
+        await requestJson(`/api/auth/admin/invitations/${encodeURIComponent(inv.id)}`, { method: 'DELETE' });
+        deletedCount++;
+      } catch {
+        // Ignorar fallo individual y continuar con el resto
+      }
+    }
+    invitations = invitations.filter(inv => inv.status !== 'expired');
+    renderInvitations();
+    showMessage(`Se eliminaron ${deletedCount} invitaciones vencidas correctamente.`, 'success');
+  } catch (error) {
+    showMessage(error.message);
+  }
+}
+
+async function cleanAcceptedInvitations() {
+  const accepted = invitations.filter(inv => inv.status === 'accepted');
+  if (!accepted.length) {
+    showMessage('No hay invitaciones aceptadas para limpiar.', 'info');
+    return;
+  }
+  if (!window.confirm(`¿Seguro que deseas eliminar los ${accepted.length} registros de invitaciones aceptadas del historial? Las cuentas de usuario NO serán modificadas ni eliminadas.`)) return;
+  try {
+    let deletedCount = 0;
+    for (const inv of accepted) {
+      try {
+        await requestJson(`/api/auth/admin/invitations/${encodeURIComponent(inv.id)}`, { method: 'DELETE' });
+        deletedCount++;
+      } catch {
+        // Ignorar fallo individual y continuar
+      }
+    }
+    invitations = invitations.filter(inv => inv.status !== 'accepted');
+    renderInvitations();
+    showMessage(`Se eliminaron ${deletedCount} registros de invitaciones aceptadas correctamente.`, 'success');
+  } catch (error) {
+    showMessage(error.message);
+  }
+}
+
+async function saveUserLimits(user, maxProfilesValue, accountExpiresAtValue) {
+  const maxProfiles = maxProfilesValue === '' ? null : Number(maxProfilesValue);
+  if (maxProfiles !== null && (!Number.isInteger(maxProfiles) || maxProfiles < 1 || maxProfiles > 10000)) {
+    showMessage('El límite debe ser un entero entre 1 y 10000, o dejarse vacío para ilimitado.');
+    return;
+  }
+  try {
+    const updated = await requestJson(`/api/auth/admin/users/${encodeURIComponent(user.id)}/limits`, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        maxProfiles,
+        accountExpiresAt: accountExpiresAtValue || null,
+      }),
+    });
+    users = users.map(entry => entry.id === updated.id ? updated : entry);
+    renderUsers();
+    showMessage('Límite y vencimiento actualizados correctamente.', 'success');
+  } catch (error) {
+    showMessage(error.message);
+  }
+}
+
 async function changeStatus(user) {
   const isActive = !user.isActive;
   const verb = isActive ? 'reactivar' : 'suspender';
@@ -390,6 +550,24 @@ async function changeStatus(user) {
     users = users.map(entry => entry.id === updated.id ? updated : entry);
     renderUsers();
     showMessage(`Cuenta ${isActive ? 'reactivada' : 'suspendida'} correctamente.`, 'success');
+  } catch (error) {
+    showMessage(error.message);
+  }
+}
+
+async function deleteMedicalProfile(profile) {
+  if (!window.confirm(`¿Eliminar permanentemente la ficha de ${profile.fullName || 'este paciente'}? El QR dejará de funcionar.`)) return;
+  try {
+    await requestJson(`/api/admin/profiles/${encodeURIComponent(profile.id)}`, { method: 'DELETE' });
+    medicalProfiles = medicalProfiles.filter(entry => entry.id !== profile.id);
+    if (medicalProfileDetails.dataset.profileId === profile.id) {
+      medicalProfileDetails.replaceChildren();
+      medicalProfileDetails.hidden = true;
+      delete medicalProfileDetails.dataset.profileId;
+    }
+    renderMedicalProfiles();
+    renderUsers();
+    showMessage('Ficha médica eliminada correctamente.', 'success');
   } catch (error) {
     showMessage(error.message);
   }
@@ -415,7 +593,9 @@ async function deleteUser(user) {
   try {
     await requestJson(`/api/auth/admin/users/${encodeURIComponent(user.id)}`, { method: 'DELETE' });
     users = users.filter(entry => entry.id !== user.id);
+    medicalProfiles = medicalProfiles.filter(profile => profile.ownerUserId !== user.id);
     renderUsers();
+    renderMedicalProfiles();
     showMessage('Cuenta y perfiles asociados eliminados.', 'success');
   } catch (error) {
     showMessage(error.message);
@@ -423,6 +603,14 @@ async function deleteUser(user) {
 }
 
 userSearch.addEventListener('input', renderUsers);
+const cleanExpiredBtn = document.getElementById('cleanExpiredInvitationsBtn');
+if (cleanExpiredBtn) {
+  cleanExpiredBtn.addEventListener('click', cleanExpiredInvitations);
+}
+const cleanAcceptedBtn = document.getElementById('cleanAcceptedInvitationsBtn');
+if (cleanAcceptedBtn) {
+  cleanAcceptedBtn.addEventListener('click', cleanAcceptedInvitations);
+}
 invitationForm.addEventListener('submit', event => {
   event.preventDefault();
   const formData = new FormData(invitationForm);

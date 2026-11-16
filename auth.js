@@ -161,7 +161,36 @@ async function findValidInvitation(tokenHash) {
   ) || null;
 }
 
-async function acceptInvitation(tokenHash, passwordHash) {
+function getLimitsForPlan(planType) {
+  if (!planType) return { maxProfiles: null, accountExpiresAt: null };
+  const normalized = String(planType).trim().toLowerCase();
+  const targetDate = new Date();
+  if (normalized === 'individual') {
+    targetDate.setFullYear(targetDate.getFullYear() + 1);
+    return {
+      maxProfiles: 1,
+      accountExpiresAt: targetDate.toISOString(),
+    };
+  }
+  if (normalized === 'familiar') {
+    targetDate.setFullYear(targetDate.getFullYear() + 1);
+    return {
+      maxProfiles: 5,
+      accountExpiresAt: targetDate.toISOString(),
+    };
+  }
+  if (normalized === 'institucion' || normalized === 'institucional') {
+    targetDate.setMonth(targetDate.getMonth() + 6);
+    return {
+      maxProfiles: 100,
+      accountExpiresAt: targetDate.toISOString(),
+    };
+  }
+  return { maxProfiles: null, accountExpiresAt: null };
+}
+
+async function acceptInvitation(tokenHash, passwordHash, planType) {
+  const planLimits = getLimitsForPlan(planType);
   if (supabase) {
     const { data, error } = await supabase.rpc('accept_user_invitation', {
       target_token_hash: tokenHash,
@@ -174,6 +203,11 @@ async function acceptInvitation(tokenHash, passwordHash) {
       }
       if (error.code === 'P0001') throw new Error('La invitación expiró, ya se usó o fue revocada.');
       throw new Error('No se pudo completar la invitación. Verifica que aplicaste la migración de acceso.');
+    }
+    if (planLimits.maxProfiles !== null || planLimits.accountExpiresAt !== null) {
+      await setUserLimits(data, planLimits).catch(err => {
+        console.error('[Auth DB] Error asignando plan al crear usuario:', err.message);
+      });
     }
     return findUserById(data);
   }
@@ -195,6 +229,8 @@ async function acceptInvitation(tokenHash, passwordHash) {
       full_name: invitation.full_name,
       role: 'user',
       is_active: true,
+      max_profiles: planLimits.maxProfiles,
+      account_expires_at: planLimits.accountExpiresAt,
       created_at: new Date().toISOString(),
     };
     localUsers.push(user);
@@ -227,6 +263,27 @@ async function revokeInvitation(id) {
   return true;
 }
 
+async function deleteInvitation(id) {
+  if (supabase) {
+    const { data, error } = await supabase
+      .from('user_invitations')
+      .delete()
+      .eq('id', id)
+      .select('id')
+      .maybeSingle();
+    if (error) {
+      console.error('[Auth DB] deleteInvitation:', error.message);
+      throw new Error('No se pudo eliminar el registro de invitación. Verifica los permisos de Supabase.');
+    }
+    return Boolean(data);
+  }
+
+  const index = localInvitations.findIndex(invitation => invitation.id === id);
+  if (index === -1) return false;
+  localInvitations.splice(index, 1);
+  return true;
+}
+
 async function findUserByEmail(email) {
   if (supabase) {
     const { data, error } = await supabase
@@ -247,7 +304,7 @@ async function findUserById(id) {
   if (supabase) {
     const { data, error } = await supabase
       .from('users')
-      .select('id, email, full_name, role, is_active, created_at')
+      .select('id, email, full_name, role, is_active, created_at, max_profiles, account_expires_at')
       .eq('id', id)
       .limit(1)
       .maybeSingle();
@@ -257,6 +314,32 @@ async function findUserById(id) {
     return data || null;
   }
   return localUsers.find(u => u.id === id) || null;
+}
+
+async function isUserAccountValid(userId) {
+  if (!userId) return { valid: true };
+  try {
+    const user = await findUserById(userId);
+    if (!user) return { valid: true };
+    if (user.is_active === false) {
+      return {
+        valid: false,
+        reason: 'ACCOUNT_SUSPENDED',
+        message: 'La cuenta asociada a esta ficha médica ha sido suspendida por el administrador.'
+      };
+    }
+    if (user.account_expires_at && new Date(user.account_expires_at).getTime() <= Date.now()) {
+      return {
+        valid: false,
+        reason: 'ACCOUNT_EXPIRED',
+        message: 'El plan de suscripción de esta ficha médica ha vencido. Contacte al titular.'
+      };
+    }
+    return { valid: true };
+  } catch (error) {
+    console.error('[Auth DB] isUserAccountValid:', error.message);
+    return { valid: true };
+  }
 }
 
 async function saveUser(user) {
@@ -270,9 +353,11 @@ async function saveUser(user) {
         full_name: user.full_name,
         role: user.role || 'user',
         is_active: true,
+        max_profiles: user.max_profiles ?? null,
+        account_expires_at: user.account_expires_at ?? null,
         created_at: user.created_at
       }])
-      .select('id, email, full_name, role, is_active, created_at')
+      .select('id, email, full_name, role, is_active, created_at, max_profiles, account_expires_at')
       .single();
 
     if (error) {
@@ -291,7 +376,9 @@ function publicUser(user) {
     fullName: user.full_name || user.fullName,
     role: user.role || 'user',
     isActive: user.is_active !== false,
-    createdAt: user.created_at || user.createdAt
+    createdAt: user.created_at || user.createdAt,
+    maxProfiles: user.max_profiles ?? null,
+    accountExpiresAt: user.account_expires_at ?? null,
   };
 }
 
@@ -299,7 +386,7 @@ async function listUsers() {
   if (supabase) {
     const { data, error } = await supabase
       .from('users')
-      .select('id, email, full_name, role, is_active, created_at')
+      .select('id, email, full_name, role, is_active, created_at, max_profiles, account_expires_at')
       .order('created_at', { ascending: false });
     if (error) {
       console.error('[Auth DB] listUsers:', error.message);
@@ -311,6 +398,33 @@ async function listUsers() {
     .slice()
     .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
     .map(publicUser);
+}
+
+async function setUserLimits(id, { maxProfiles, accountExpiresAt }) {
+  if (supabase) {
+    const { data, error } = await supabase
+      .from('users')
+      .update({
+        max_profiles: maxProfiles,
+        account_expires_at: accountExpiresAt,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', id)
+      .select('id, email, full_name, role, is_active, created_at, max_profiles, account_expires_at')
+      .maybeSingle();
+    if (error) {
+      console.error('[Auth DB] setUserLimits:', error.message);
+      throw new Error('No se pudieron guardar los límites. Verifica que aplicaste supabase_account_limits.sql.');
+    }
+    return data;
+  }
+
+  const user = localUsers.find(entry => entry.id === id);
+  if (!user) return null;
+  user.max_profiles = maxProfiles;
+  user.account_expires_at = accountExpiresAt;
+  user.updated_at = new Date().toISOString();
+  return user;
 }
 
 async function setUserStatus(id, isActive) {
@@ -417,11 +531,19 @@ const verifyToken = async (req, res, next) => {
         code: 'ACCOUNT_SUSPENDED'
       });
     }
+    if (user.account_expires_at && new Date(user.account_expires_at).getTime() <= Date.now()) {
+      return res.status(403).json({
+        error: 'La cuenta venció. Contacta al administrador para renovarla.',
+        code: 'ACCOUNT_EXPIRED',
+      });
+    }
     req.user = {
       ...decoded,
       email: user.email,
       fullName: user.full_name || user.fullName,
-      role: user.role || 'user'
+      role: user.role || 'user',
+      maxProfiles: user.max_profiles ?? null,
+      accountExpiresAt: user.account_expires_at ?? null,
     };
     next();
   } catch (error) {
@@ -484,7 +606,7 @@ router.get('/invitation/:token', async (req, res) => {
 });
 
 router.post('/invitation/accept', async (req, res) => {
-  const { token, password } = req.body || {};
+  const { token, password, plan } = req.body || {};
   if (typeof token !== 'string' || !INVITATION_TOKEN_PATTERN.test(token)) {
     return res.status(400).json({ error: 'El enlace de invitación no es válido.' });
   }
@@ -493,8 +615,8 @@ router.post('/invitation/accept', async (req, res) => {
   }
   try {
     const passwordHash = await bcrypt.hash(password, BCRYPT_ROUNDS);
-    const user = await acceptInvitation(hashInvitationToken(token), passwordHash);
-    console.log(`[Auth] Invitación aceptada: ${user.email}`);
+    const user = await acceptInvitation(hashInvitationToken(token), passwordHash, plan);
+    console.log(`[Auth] Invitación aceptada: ${user.email} con plan: ${plan || 'sin plan'}`);
     res.status(201).json({
       message: 'Cuenta activada. Ya puedes iniciar sesión.',
       user: publicUser(user),
@@ -511,6 +633,26 @@ router.post('/invitation/accept', async (req, res) => {
     }
     console.error('[Auth] Error al aceptar invitación:', error);
     res.status(503).json({ error: error.message || 'No se pudo activar la cuenta.' });
+  }
+});
+
+router.post('/select-plan', verifyToken, async (req, res) => {
+  const { plan } = req.body || {};
+  const normalized = String(plan || '').trim().toLowerCase();
+  if (!['individual', 'familiar', 'institucion', 'institucional'].includes(normalized)) {
+    return res.status(400).json({ error: 'Debes seleccionar un plan válido: individual, familiar o institucion.' });
+  }
+  const limits = getLimitsForPlan(normalized);
+  try {
+    const user = await setUserLimits(req.user.userId, limits);
+    if (!user) return res.status(404).json({ error: 'Usuario no encontrado.' });
+    res.json({
+      message: 'Plan asignado correctamente a tu cuenta.',
+      user: publicUser(user),
+    });
+  } catch (error) {
+    console.error('[Auth] Error al seleccionar plan:', error);
+    res.status(500).json({ error: error.message || 'No se pudo asignar el plan.' });
   }
 });
 
@@ -574,6 +716,21 @@ router.post('/admin/invitations/:id/revoke', verifyToken, requireAdmin, async (r
   }
 });
 
+router.delete('/admin/invitations/:id', verifyToken, requireAdmin, async (req, res) => {
+  if (!UUID_PATTERN.test(req.params.id)) {
+    return res.status(400).json({ error: 'El identificador de invitación no es válido.' });
+  }
+  try {
+    if (!await deleteInvitation(req.params.id)) {
+      return res.status(404).json({ error: 'El registro de invitación no existe.' });
+    }
+    res.json({ message: 'Registro de invitación eliminado. La cuenta, si existe, no fue modificada.' });
+  } catch (error) {
+    console.error('[Auth] Error al eliminar registro de invitación:', error);
+    res.status(500).json({ error: error.message || 'No se pudo eliminar el registro de invitación.' });
+  }
+});
+
 /**
  * POST /api/auth/login
  * Iniciar sesión y obtener un token JWT.
@@ -605,6 +762,12 @@ router.post('/login', async (req, res) => {
       // Mismo mensaje para no revelar si el email existe o no
       return res.status(401).json({ error: 'Credenciales inválidas. Verifica tu correo y contraseña.' });
     }
+    if (user.account_expires_at && new Date(user.account_expires_at).getTime() <= Date.now()) {
+      return res.status(403).json({
+        error: 'La cuenta venció. Contacta al administrador para renovarla.',
+        code: 'ACCOUNT_EXPIRED',
+      });
+    }
 
     // Generar JWT firmado
     const token = jwt.sign(
@@ -631,7 +794,9 @@ router.post('/login', async (req, res) => {
         email: user.email,
         fullName: user.full_name || user.fullName,
         role: user.role || 'user',
-        isActive: user.is_active !== false
+        isActive: user.is_active !== false,
+        maxProfiles: user.max_profiles ?? null,
+        accountExpiresAt: user.account_expires_at ?? null,
       }
     });
   } catch (error) {
@@ -657,6 +822,8 @@ router.get('/me', verifyToken, (req, res) => {
     fullName: req.user.fullName,
     role: req.user.role,
     isActive: true,
+    maxProfiles: req.user.maxProfiles,
+    accountExpiresAt: req.user.accountExpiresAt,
     tokenInfo: {
       issuedAt: new Date(req.user.iat * 1000).toISOString(),
       expiresAt: new Date(req.user.exp * 1000).toISOString()
@@ -723,6 +890,40 @@ router.patch('/admin/users/:id/role', verifyToken, requireAdmin, async (req, res
   }
 });
 
+router.patch('/admin/users/:id/limits', verifyToken, requireAdmin, async (req, res) => {
+  if (!UUID_PATTERN.test(req.params.id)) {
+    return res.status(400).json({ error: 'El identificador del usuario no es válido.' });
+  }
+
+  const { maxProfiles, accountExpiresAt } = req.body || {};
+  if (!Object.hasOwn(req.body || {}, 'maxProfiles') || !Object.hasOwn(req.body || {}, 'accountExpiresAt')) {
+    return res.status(400).json({ error: 'Debes indicar maxProfiles y accountExpiresAt; usa null para ilimitado o sin vencimiento.' });
+  }
+  if (maxProfiles !== null && (!Number.isInteger(maxProfiles) || maxProfiles < 1 || maxProfiles > 10000)) {
+    return res.status(400).json({ error: 'maxProfiles debe ser un entero entre 1 y 10000, o null para ilimitado.' });
+  }
+  if (accountExpiresAt !== null && (
+    typeof accountExpiresAt !== 'string' ||
+    !/^\d{4}-\d{2}-\d{2}$/.test(accountExpiresAt) ||
+    Number.isNaN(Date.parse(`${accountExpiresAt}T00:00:00.000Z`)) ||
+    new Date(`${accountExpiresAt}T00:00:00.000Z`).toISOString().slice(0, 10) !== accountExpiresAt
+  )) {
+    return res.status(400).json({ error: 'accountExpiresAt debe ser una fecha válida YYYY-MM-DD o null para no vencer.' });
+  }
+
+  const expiresAt = accountExpiresAt
+    ? new Date(`${accountExpiresAt}T23:59:59.999Z`).toISOString()
+    : null;
+  try {
+    const user = await setUserLimits(req.params.id, { maxProfiles, accountExpiresAt: expiresAt });
+    if (!user) return res.status(404).json({ error: 'Usuario no encontrado.' });
+    res.json(publicUser(user));
+  } catch (error) {
+    console.error('[Auth] Error al actualizar límites de la cuenta:', error);
+    res.status(500).json({ error: error.message || 'No se pudieron actualizar los límites.' });
+  }
+});
+
 router.delete('/admin/users/:id', verifyToken, requireAdmin, async (req, res) => {
   if (!UUID_PATTERN.test(req.params.id)) {
     return res.status(400).json({ error: 'El identificador del usuario no es válido.' });
@@ -756,13 +957,15 @@ router.post('/verify', verifyToken, (req, res) => {
       id: req.user.userId,
       email: req.user.email,
       fullName: req.user.fullName,
-      role: req.user.role
+      role: req.user.role,
+      maxProfiles: req.user.maxProfiles,
+      accountExpiresAt: req.user.accountExpiresAt,
     },
     expiresAt: new Date(req.user.exp * 1000).toISOString()
   });
 });
 
-const authModule = { router, verifyToken };
+const authModule = { router, verifyToken, isUserAccountValid, findUserById };
 if (process.env.NODE_ENV === 'test') {
   authModule.setLocalUserRoleForTests = (id, role) => {
     const user = localUsers.find(entry => entry.id === id);
@@ -778,6 +981,8 @@ if (process.env.NODE_ENV === 'test') {
       full_name: fullName,
       role,
       is_active: true,
+      max_profiles: null,
+      account_expires_at: null,
       created_at: new Date().toISOString(),
     });
     return publicUser(user);

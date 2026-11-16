@@ -60,6 +60,8 @@ function Dashboard() {
   const [photoFile, setPhotoFile] = useState(null);
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState(null);
+  const [currentUser, setCurrentUser] = useState(() => Auth.getUser());
+  const [showPlanModal, setShowPlanModal] = useState(false);
 
   async function loadProfiles() {
     setLoading(true);
@@ -90,6 +92,10 @@ function Dashboard() {
 
       const user = Auth.getUser();
       if (user) {
+        setCurrentUser(user);
+        if (user.role !== 'admin' && user.maxProfiles == null && user.accountExpiresAt == null) {
+          setShowPlanModal(true);
+        }
         const adminLink = document.getElementById('adminLink');
         const userInfo = document.getElementById('userInfo');
         const userAvatar = document.getElementById('userAvatar');
@@ -148,6 +154,66 @@ function Dashboard() {
     donors: profiles.filter(profile => profile.organDonor).length,
     allergies: profiles.reduce((sum, profile) => sum + (profile.allergiesCount || profile.allergies?.length || 0), 0),
   }), [profiles]);
+
+  const planInfo = useMemo(() => {
+    if (!currentUser) return { name: 'Cargando...', limitText: '—', expires: '—', needsPlan: false };
+    if (currentUser.maxProfiles === 1) {
+      return {
+        name: 'Plan Individual',
+        limitText: '1 ficha máx',
+        expires: currentUser.accountExpiresAt ? new Date(currentUser.accountExpiresAt).toLocaleDateString() : '1 año',
+        needsPlan: false,
+      };
+    }
+    if (currentUser.maxProfiles === 5) {
+      return {
+        name: 'Plan Familiar',
+        limitText: '5 fichas máx',
+        expires: currentUser.accountExpiresAt ? new Date(currentUser.accountExpiresAt).toLocaleDateString() : '1 año',
+        needsPlan: false,
+      };
+    }
+    if (currentUser.maxProfiles === 100) {
+      return {
+        name: 'Plan Institución',
+        limitText: '100 fichas máx',
+        expires: currentUser.accountExpiresAt ? new Date(currentUser.accountExpiresAt).toLocaleDateString() : '6 meses',
+        needsPlan: false,
+      };
+    }
+    if (currentUser.maxProfiles) {
+      return {
+        name: `Plan (${currentUser.maxProfiles} fichas)`,
+        limitText: `${currentUser.maxProfiles} fichas máx`,
+        expires: currentUser.accountExpiresAt ? new Date(currentUser.accountExpiresAt).toLocaleDateString() : 'Personalizado',
+        needsPlan: false,
+      };
+    }
+    return {
+      name: 'Sin plan asignado',
+      limitText: 'Sin límite',
+      expires: 'Elige tu plan aquí',
+      needsPlan: true,
+    };
+  }, [currentUser]);
+
+  async function handleSelectPlan(planKey) {
+    try {
+      const response = await Auth.fetch('/api/auth/select-plan', {
+        method: 'POST',
+        body: JSON.stringify({ plan: planKey }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'No se pudo asignar el plan.');
+      const updatedUser = { ...(Auth.getUser() || {}), ...data.user };
+      Auth.saveSession(Auth.getToken(), updatedUser);
+      setCurrentUser(updatedUser);
+      setShowPlanModal(false);
+      notify('¡Plan configurado correctamente con sus fichas y vigencia!');
+    } catch (err) {
+      notify(err.message, 'error');
+    }
+  }
 
   function notify(message, type = 'success') {
     setToast({ message, type });
@@ -287,8 +353,61 @@ function Dashboard() {
 
   return (
     <>
+      {planInfo.needsPlan && (
+        <section className="plan-onboarding-banner" style={{
+          background: 'linear-gradient(135deg, rgba(239, 35, 60, 0.15) 0%, rgba(13, 23, 41, 0.95) 100%)',
+          border: '2px solid #ef233c',
+          borderRadius: '16px',
+          padding: '1.25rem 1.5rem',
+          marginBottom: '1.5rem',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          flexWrap: 'wrap',
+          gap: '1rem',
+          boxShadow: '0 0 30px rgba(239, 35, 60, 0.2)'
+        }}>
+          <div>
+            <div style={{ fontSize: '0.75rem', fontWeight: 800, color: '#ff4d6d', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+              Primer ingreso a la plataforma
+            </div>
+            <h2 style={{ fontSize: '1.35rem', fontWeight: 900, color: '#fff', margin: '0.2rem 0' }}>
+              Elige el plan ideal para ti
+            </h2>
+            <p style={{ color: '#94a3b8', fontSize: '0.88rem' }}>
+              Activa tu plan Individual (1 ficha), Familiar (5 fichas) o Institución (100 fichas) para comenzar a generar códigos QR de emergencia.
+            </p>
+          </div>
+          <button
+            type="button"
+            className="btn btn-primary"
+            style={{ padding: '0.65rem 1.25rem', fontSize: '0.95rem', fontWeight: 800 }}
+            onClick={() => setShowPlanModal(true)}
+          >
+            🚀 Elegir mi Plan
+          </button>
+        </section>
+      )}
+
       <section className="stats-grid" aria-label="Resumen de perfiles médicos">
-        <Stat icon="📋" value={stats.total} label="Perfiles médicos" />
+        <Stat
+          icon="📋"
+          value={`${profiles.length} / ${currentUser?.maxProfiles ?? '∞'}`}
+          label={`Fichas (${planInfo.limitText})`}
+        />
+        <article className="stat-card" style={{ cursor: 'pointer' }} onClick={() => setShowPlanModal(true)} title="Haz clic para ver o cambiar de plan">
+          <div className="stat-icon red">⭐</div>
+          <div className="stat-info">
+            <div className="stat-value" style={{ fontSize: '1.15rem' }}>{planInfo.name}</div>
+            <div className="stat-label">
+              {planInfo.needsPlan ? (
+                <span style={{ color: '#ef233c', fontWeight: 800 }}>⚡ Elige tu plan aquí</span>
+              ) : (
+                `Vigencia: ${planInfo.expires}`
+              )}
+            </div>
+          </div>
+        </article>
         <Stat icon="🫀" value={stats.donors} label="Donantes de órganos" />
         <Stat icon="⚠️" value={stats.allergies} label="Alertas de alergias" />
       </section>
@@ -337,6 +456,12 @@ function Dashboard() {
           onPhotoChange={selectPhoto}
           onSubmit={saveProfile}
           onClose={() => { setEditing(null); setPhotoFile(null); }}
+        />
+      )}
+      {showPlanModal && (
+        <PlanModal
+          onSelect={handleSelectPlan}
+          onClose={() => setShowPlanModal(false)}
         />
       )}
       {toast && <div className={`profile-toast ${toast.type}`} role="status">{toast.message}</div>}
@@ -474,6 +599,141 @@ function Field({ label, name, value, onChange, type = 'text', placeholder, requi
       {textarea ? <textarea id={`field-${name}`} name={name} className="form-control" value={value} onChange={onChange} placeholder={placeholder} rows={3} /> : select ? (
         <select id={`field-${name}`} name={name} className="form-control" value={value} onChange={onChange} required={required}>{options.map(option => <option key={option} value={option}>{option}</option>)}</select>
       ) : <input id={`field-${name}`} name={name} type={type} className="form-control" value={value ?? ''} onChange={onChange} placeholder={placeholder} required={required} min={min} max={max} readOnly={readOnly} />}
+    </div>
+  );
+}
+
+function PlanModal({ onSelect, onClose }) {
+  const [selected, setSelected] = useState('familiar');
+  const [submitting, setSubmitting] = useState(false);
+
+  const plans = [
+    {
+      id: 'individual',
+      tag: 'POR UN AÑO',
+      name: 'Individual',
+      features: '1 ficha · 1 QR · 1 contacto · Soporte',
+      price: '$5.000',
+      cycle: 'por año',
+    },
+    {
+      id: 'familiar',
+      tag: 'PLAN',
+      name: 'Familiar',
+      features: '5 fichas · 5 QR personalizados · 5 contactos',
+      price: '$19.990',
+      cycle: 'por año',
+      badge: 'Recomendado',
+    },
+    {
+      id: 'institucion',
+      tag: 'PLAN',
+      name: 'Institución',
+      features: '100 fichas · 100 QR personalizados · 100 contactos',
+      price: '$180.990',
+      cycle: 'por 6 meses',
+      badge: 'Precio conversable',
+    },
+  ];
+
+  async function handleConfirm() {
+    setSubmitting(true);
+    try {
+      await onSelect(selected);
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div className="modal-overlay profile-overlay" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}>
+      <section className="modal-content profile-modal" role="dialog" aria-modal="true" style={{ maxWidth: '640px' }}>
+        <header className="modal-header">
+          <div>
+            <div style={{ fontSize: '0.75rem', fontWeight: 800, color: '#ef233c', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+              DASHLAB · QR EMERGENCIAS
+            </div>
+            <h2 className="modal-title" style={{ fontSize: '1.4rem', fontWeight: 900 }}>
+              Elige el plan ideal para ti
+            </h2>
+          </div>
+          <button className="btn-close" type="button" onClick={onClose} aria-label="Cerrar">×</button>
+        </header>
+        <div className="modal-body" style={{ padding: '1.25rem' }}>
+          <p style={{ color: '#94a3b8', fontSize: '0.88rem', marginBottom: '1.25rem' }}>
+            Protege a quienes más quieres con su ficha médica en un QR. Todos los planes incluyen cifrado seguro.
+          </p>
+          <div style={{ display: 'grid', gap: '0.85rem' }}>
+            {plans.map(p => {
+              const isSelected = selected === p.id;
+              return (
+                <div
+                  key={p.id}
+                  onClick={() => setSelected(p.id)}
+                  style={{
+                    padding: '1.1rem 1.25rem',
+                    borderRadius: '14px',
+                    border: isSelected ? '2px solid #ef233c' : '1px solid #1e2c47',
+                    background: isSelected ? 'linear-gradient(135deg, rgba(239, 35, 60, 0.15) 0%, rgba(13, 23, 41, 0.95) 100%)' : '#0d1729',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    transition: 'all 0.2s ease',
+                    boxShadow: isSelected ? '0 0 20px rgba(239, 35, 60, 0.25)' : 'none',
+                  }}
+                >
+                  <div style={{ flex: 1, paddingRight: '1rem' }}>
+                    <div style={{ fontSize: '0.7rem', fontWeight: 800, color: '#94a3b8', letterSpacing: '0.08em', textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                      {p.tag}
+                      {p.badge && (
+                        <span style={{ fontSize: '0.65rem', padding: '0.15rem 0.45rem', background: 'rgba(239,35,60,0.2)', border: '1px solid rgba(239,35,60,0.5)', color: '#ff4d6d', borderRadius: '999px' }}>
+                          {p.badge}
+                        </span>
+                      )}
+                    </div>
+                    <div style={{ fontSize: '1.3rem', fontWeight: 800, color: '#fff', margin: '0.2rem 0' }}>{p.name}</div>
+                    <div style={{ fontSize: '0.85rem', color: '#94a3b8' }}>{p.features}</div>
+                  </div>
+                  <div style={{ textAlign: 'right', minWidth: '120px' }}>
+                    <div style={{ fontSize: '1.45rem', fontWeight: 900, color: '#fff' }}>{p.price}</div>
+                    <div style={{ fontSize: '0.78rem', color: '#94a3b8' }}>{p.cycle}</div>
+                  </div>
+                  <div style={{
+                    width: '24px',
+                    height: '24px',
+                    borderRadius: '50%',
+                    border: isSelected ? '2px solid #ef233c' : '2px solid #334155',
+                    background: isSelected ? '#ef233c' : 'transparent',
+                    color: '#fff',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    marginLeft: '0.75rem',
+                    fontSize: '0.8rem',
+                    fontWeight: 800,
+                    flexShrink: 0,
+                  }}>
+                    {isSelected ? '✓' : ''}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+        <footer className="modal-footer" style={{ justifyContent: 'space-between' }}>
+          <button type="button" className="btn btn-secondary" onClick={onClose} disabled={submitting}>Cancelar</button>
+          <button
+            type="button"
+            className="btn btn-primary"
+            onClick={handleConfirm}
+            disabled={submitting}
+            style={{ fontWeight: 800 }}
+          >
+            {submitting ? 'Asignando plan…' : `Activar Plan ${plans.find(p => p.id === selected)?.name}`}
+          </button>
+        </footer>
+      </section>
     </div>
   );
 }

@@ -13,7 +13,7 @@ const { v4: uuidv4 } = require('uuid');
 const openApiSpec = require('./openapi');
 
 // Sistema de autenticación JWT
-const { router: authRouter, verifyToken } = require('./auth');
+const { router: authRouter, verifyToken, isUserAccountValid } = require('./auth');
 
 const app = express();
 
@@ -68,6 +68,22 @@ function requireAdmin(req, res, next) {
     return res.status(403).json({ error: 'Se requieren privilegios de administrador.' });
   }
   next();
+}
+
+const profileCreationQueues = new Map();
+
+async function withProfileCreationLock(userId, action) {
+  const previous = profileCreationQueues.get(userId) || Promise.resolve();
+  let release;
+  const current = new Promise(resolve => { release = resolve; });
+  profileCreationQueues.set(userId, current);
+  await previous;
+  try {
+    return await action();
+  } finally {
+    release();
+    if (profileCreationQueues.get(userId) === current) profileCreationQueues.delete(userId);
+  }
 }
 
 function calculateAge(birthDate) {
@@ -125,9 +141,24 @@ app.get('/api/v1/emergency/:publicToken', async (req, res) => {
     if (profile.is_active === false) {
       return res.status(403).json({
         error: 'Perfil no disponible o desactivado temporalmente.',
+        code: 'PROFILE_PAUSED',
         is_active: false,
         message: 'Esta ficha médica ha sido pausada o revocada por el titular.'
       });
+    }
+
+    // Verificar si la cuenta asociada al perfil está vencida o suspendida
+    const ownerUserId = profile.userId || profile.user_id;
+    if (typeof isUserAccountValid === 'function' && ownerUserId) {
+      const accountStatus = await isUserAccountValid(ownerUserId);
+      if (!accountStatus.valid) {
+        return res.status(403).json({
+          error: accountStatus.message,
+          code: accountStatus.reason,
+          is_active: false,
+          message: accountStatus.message
+        });
+      }
     }
 
     // Retornamos únicamente la información vital para paramédicos/emergencias
@@ -223,6 +254,20 @@ app.get('/api/admin/profiles/:id', verifyToken, requireAdmin, async (req, res) =
   }
 });
 
+app.delete('/api/admin/profiles/:id', verifyToken, requireAdmin, async (req, res) => {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(req.params.id)) {
+    return res.status(400).json({ error: 'El identificador de la ficha no es válido.' });
+  }
+  try {
+    const deleted = await db.deleteProfile(req.params.id);
+    if (!deleted) return res.status(404).json({ error: 'Ficha médica no encontrada.' });
+    res.json({ message: 'Ficha médica eliminada correctamente.', id: req.params.id });
+  } catch (error) {
+    console.error('Error al eliminar ficha desde administración:', error);
+    res.status(500).json({ error: 'No se pudo eliminar la ficha médica.' });
+  }
+});
+
 // 3. Obtener un perfil específico por ID o Token (para Dashboard y Vista de Emergencia)
 app.get('/api/profiles/:id', verifyToken, async (req, res) => {
   try {
@@ -245,9 +290,18 @@ app.get('/api/profiles/:id', verifyToken, async (req, res) => {
 
 // 4. Crear nuevo perfil de emergencia (Compatible con /api/profiles y /api/v1/profiles)
 // 🔒 PROTEGIDO: Requiere token JWT válido (Authorization: Bearer <token>)
-const createProfileHandler = async (req, res) => {
+const createProfileHandlerLocked = async (req, res) => {
   try {
     const body = req.body;
+    const existingProfiles = await db.getAllProfiles(req.user.userId);
+    if (req.user.maxProfiles !== null && existingProfiles.length >= req.user.maxProfiles) {
+      return res.status(409).json({
+        error: 'Se alcanzó el límite de fichas médicas asignado a esta cuenta.',
+        code: 'PROFILE_LIMIT_REACHED',
+        maxProfiles: req.user.maxProfiles,
+        profileCount: existingProfiles.length,
+      });
+    }
     const fullName = (body.fullName || body.profile_name || '').trim();
     const bloodType = body.bloodType || body.blood_type;
 
@@ -346,10 +400,16 @@ const createProfileHandler = async (req, res) => {
       ...saved
     });
   } catch (error) {
+    if (error.code === 'PROFILE_LIMIT_REACHED') {
+      return res.status(409).json({ error: error.message, code: error.code });
+    }
     console.error('Error al crear perfil:', error);
     res.status(500).json({ error: 'Error interno del servidor al generar el perfil: ' + error.message });
   }
 };
+
+const createProfileHandler = (req, res) =>
+  withProfileCreationLock(req.user.userId, () => createProfileHandlerLocked(req, res));
 
 app.post('/api/profiles', verifyToken, createProfileHandler);
 app.post('/api/v1/profiles', verifyToken, createProfileHandler);

@@ -59,6 +59,8 @@ td { font-size: .88rem; }
 .badge-pending { color: #815a05; background: #fff3d4; }
 .role-control { display: flex; align-items: center; gap: .4rem; }
 .role-control select { min-height: 34px; padding: .3rem; border: 1px solid #ccd5e2; border-radius: 6px; background: #fff; }
+.limit-controls { display: grid; min-width: 210px; gap: .4rem; }
+.limit-controls input, .limit-controls select { width: 100%; min-height: 34px; padding: .35rem .5rem; border: 1px solid #ccd5e2; border-radius: 6px; font: inherit; background: #fff; }
 .row-actions { display: flex; flex-wrap: wrap; gap: .4rem; }
 .button { display: inline-flex; align-items: center; justify-content: center; min-height: 36px; padding: .45rem .7rem; border: 0; border-radius: 7px; cursor: pointer; font: inherit; font-size: .8rem; font-weight: 700; text-decoration: none; white-space: nowrap; }
 .button:disabled { cursor: not-allowed; opacity: .55; }

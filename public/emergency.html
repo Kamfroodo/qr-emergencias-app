@@ -271,7 +271,9 @@
         if (response.status === 403) {
           const errData = await response.json();
           loadingState.style.display = 'none';
-          errorTitle.textContent = 'Ficha Médica Desactivada';
+          errorTitle.textContent = errData.code === 'ACCOUNT_EXPIRED'
+            ? 'Suscripción o Plan Vencido'
+            : (errData.code === 'ACCOUNT_SUSPENDED' ? 'Cuenta Suspendida' : 'Ficha Médica Desactivada');
           errorMessage.textContent = errData.message || 'El titular ha pausado temporalmente este código QR por seguridad.';
           errorState.style.display = 'flex';
           return;

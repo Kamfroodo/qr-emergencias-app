@@ -28,7 +28,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_user_invitations_one_open_per_email
 
 ALTER TABLE public.user_invitations ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON TABLE public.user_invitations FROM PUBLIC, anon, authenticated;
-GRANT SELECT, INSERT, UPDATE ON TABLE public.user_invitations TO service_role;
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.user_invitations TO service_role;
 
 CREATE OR REPLACE FUNCTION public.admin_create_user_invitation(
     target_email TEXT,

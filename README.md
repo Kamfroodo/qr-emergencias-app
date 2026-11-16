@@ -23,12 +23,12 @@ Aplicación web para crear y administrar perfiles médicos de emergencia y compa
 ## Funciones
 
 - Registro, inicio de sesión y autenticación con JWT.
-- Panel de administración para invitar usuarios, revocar o renovar invitaciones, suspender/reactivar cuentas, gestionar roles y eliminar cuentas con sus perfiles.
+- Panel de administración para invitar usuarios, revocar o renovar invitaciones, suspender/reactivar cuentas, gestionar roles, asignar límites y vencimientos, y eliminar cuentas o fichas.
 - Panel React para listar, buscar, crear y editar perfiles médicos.
 - Gestión de datos personales, grupo sanguíneo, contactos de emergencia, alergias, condiciones, medicamentos, seguro y notas clínicas.
 - Activación y pausa de fichas; pausar una ficha revoca el acceso público asociado a su QR.
 - Generación, vista, descarga e impresión de códigos QR.
-- Panel de administrador de solo lectura para consultar las fichas de todas las cuentas y generar/descargar sus QR.
+- Panel de administración para consultar, generar/descargar QR y eliminar fichas de todas las cuentas.
 - Cada usuario puede consultar y editar solo sus propias fichas; la interfaz y los endpoints de generación/descarga de QR están reservados a administradores.
 - Vista pública para emergencias con información clínica seleccionada.
 - Persistencia en Supabase PostgreSQL; en desarrollo puede usarse almacenamiento en memoria.
@@ -73,7 +73,8 @@ Aplicación web para crear y administrar perfiles médicos de emergencia y compa
 ├── package.json
 ├── package-lock.json            # Versiones reproducibles para npm ci
 ├── server.js                    # Inicio del servidor HTTP
-└── supabase_schema.sql          # Esquema inicial de la base de datos
+├── supabase_schema.sql          # Esquema inicial de la base de datos
+└── supabase_account_limits.sql  # Migración para límites y caducidad de cuentas
 ```
 
 `public/js/dashboard.bundle.js` se genera a partir de `src/dashboard.jsx`. El Dockerfile y GitHub Actions lo compilan durante sus respectivos builds.
@@ -199,11 +200,14 @@ Las fichas están asociadas a la cuenta que las creó. Las rutas privadas requie
    ```
 
    Guarda la contraseña de forma segura y elimina el hash de cualquier nota temporal.
-6. Ejecuta `supabase_access_control.sql` en el SQL Editor **después** de `supabase_schema.sql`. Crea la tabla protegida de invitaciones y las funciones atómicas para crear y aceptar enlaces de un solo uso.
-7. Configura `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` y, si corresponde, `SUPABASE_PHOTO_BUCKET` en el entorno local o en el gestor de secretos del servidor.
-8. Reinicia la aplicación, inicia sesión con la cuenta administradora y comprueba `GET /health`; el campo `database` debe mostrar `supabase_cloud`.
+6. Ejecuta `supabase_access_control.sql` en el SQL Editor **después** de `supabase_schema.sql`. Crea la tabla protegida de invitaciones y las funciones atómicas para crear y aceptar enlaces de un solo uso. Si ya la habías ejecutado, vuelve a ejecutar el archivo actualizado para permitir borrar invitaciones desde el panel.
+7. Ejecuta `supabase_account_limits.sql` en el SQL Editor. Agrega los límites y fechas de vencimiento, protege cuotas concurrentes, y elimina solo la ficha demo conocida con su UUID y nombre exactos.
+8. Configura `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` y, si corresponde, `SUPABASE_PHOTO_BUCKET` en el entorno local o en el gestor de secretos del servidor.
+9. Reinicia la aplicación, inicia sesión con la cuenta administradora y comprueba `GET /health`; el campo `database` debe mostrar `supabase_cloud`.
 
-El panel de administración permite generar un enlace de invitación, copiarlo y enviarlo manualmente. El enlace vence a los 7 días, solo puede aceptarse una vez y el administrador puede revocarlo o generar otro. La persona invitada establece una contraseña de al menos 12 caracteres. No se envían correos automáticamente. El panel también permite suspender/reactivar cuentas, cambiar roles, eliminar cuentas y consultar en modo de solo lectura las fichas médicas de todas las cuentas para obtener sus QR. La suspensión invalida las sesiones existentes en la siguiente petición. La eliminación borra los perfiles médicos asociados y es irreversible.
+El panel de administración permite generar un enlace de invitación, copiarlo y enviarlo manualmente. El enlace vence a los 7 días, solo puede aceptarse una vez y el administrador puede revocarlo o generar otro. La persona invitada establece una contraseña de al menos 12 caracteres. No se envían correos automáticamente. Los administradores pueden eliminar el registro histórico de una invitación sin modificar la cuenta asociada. El panel también permite suspender/reactivar cuentas, cambiar roles, asignar máximos de fichas y vencimientos, y consultar, descargar QR o eliminar fichas individuales. Una cuota vacía significa ilimitada; una fecha vacía significa que la cuenta no vence. Las cuentas existentes quedan ilimitadas y sin vencimiento al aplicar la migración. La suspensión o el vencimiento bloquean las sesiones existentes en la siguiente petición. La eliminación de una cuenta borra sus fichas y es irreversible.
+
+La migración elimina únicamente la ficha demo con UUID `8f1b2c3d-4e5f-6a7b-8c9d-0e1f2a3b4c5d` y nombre exacto `Carlos Andrés Morales Díaz`. No hay una segunda ficha demo identificada de forma segura en el esquema; inspecciona las fichas en Supabase antes de borrar cualquier otro registro. Los demos del fallback en memoria se quitaron.
 
 Si no ejecutas `supabase_access_control.sql`, los endpoints de invitaciones no estarán disponibles en Supabase. El backend usa exclusivamente `SUPABASE_SERVICE_ROLE_KEY`; no incluyas esa clave ni los tokens de invitación en el frontend, capturas o registros.
 
@@ -236,12 +240,15 @@ La tabla resume las rutas principales:
 | `GET` | `/api/auth/admin/invitations` | Admin | Listar invitaciones sin tokens |
 | `POST` | `/api/auth/admin/invitations` | Admin | Crear o renovar un enlace de invitación |
 | `POST` | `/api/auth/admin/invitations/:id/revoke` | Admin | Revocar una invitación |
+| `DELETE` | `/api/auth/admin/invitations/:id` | Admin | Eliminar el registro de una invitación |
 | `GET` | `/api/admin/profiles` | Admin | Listar resúmenes de todas las fichas |
 | `GET` | `/api/admin/profiles/:id` | Admin | Consultar una ficha médica completa (solo lectura) |
+| `DELETE` | `/api/admin/profiles/:id` | Admin | Eliminar permanentemente una ficha médica |
 | `GET` | `/api/admin/profiles/:id/qr` | Admin | Obtener o descargar el QR de cualquier ficha |
 | `GET` | `/api/auth/admin/users` | Admin | Listar cuentas sin datos de contraseña |
 | `PATCH` | `/api/auth/admin/users/:id/status` | Admin | Suspender o reactivar una cuenta |
 | `PATCH` | `/api/auth/admin/users/:id/role` | Admin | Asignar o retirar el rol de administrador |
+| `PATCH` | `/api/auth/admin/users/:id/limits` | Admin | Asignar el máximo de fichas y vencimiento opcional |
 | `DELETE` | `/api/auth/admin/users/:id` | Admin | Eliminar una cuenta y sus perfiles médicos |
 | `GET` | `/api/v1/emergency/:publicToken` | Público | Consultar la información de emergencia de una ficha activa |
 | `GET` | `/api/profiles` | JWT | Listar los perfiles del usuario |
@@ -271,7 +278,7 @@ GitHub Actions ejecuta `npm ci`, compila el panel React y corre `npm test` con N
 
 El repositorio incluye `render.yaml` para crear un servicio web desde Docker. El plan `starter` evita que la aplicación entre en suspensión por inactividad. Render despliega automáticamente los cambios que se integren en la rama conectada.
 
-1. En Supabase, aplica `supabase_schema.sql` al proyecto que utilizará producción y confirma que contiene los datos correctos. No uses la base de datos de desarrollo si no quieres compartir sus cuentas y perfiles.
+1. En Supabase, aplica `supabase_schema.sql` al proyecto que utilizará producción y confirma que contiene los datos correctos. No uses la base de datos de desarrollo si no quieres compartir sus cuentas y perfiles. En bases existentes, aplica también `supabase_account_limits.sql` antes del despliegue.
 2. En [Render](https://render.com), crea un **Blueprint** y conecta este repositorio. Render leerá `render.yaml` en la raíz y propondrá crear el servicio web.
 3. Al configurar el Blueprint, completa los valores solicitados:
    - `SUPABASE_URL`: URL del proyecto Supabase.
@@ -281,7 +288,7 @@ El repositorio incluye `render.yaml` para crear un servicio web desde Docker. El
    - `JWT_SECRET`: Render lo genera automáticamente desde `render.yaml`.
 
    Si el dominio todavía no aparece al completar la configuración, crea el servicio y establece `BASE_URL` en **Environment** con la URL asignada; luego vuelve a desplegar. No configures `PORT`: Render lo proporciona (por defecto `10000`).
-4. Antes del primer deploy de esta versión, ejecuta `supabase_access_control.sql` en el SQL Editor de Supabase y confirma que existe una cuenta con rol `admin`.
+4. Antes del primer deploy de esta versión, ejecuta (o vuelve a ejecutar, si ya estaban aplicados) `supabase_access_control.sql` y `supabase_account_limits.sql` en el SQL Editor de Supabase y confirma que existe una cuenta con rol `admin`.
 5. Espera que el build Docker y el health check `/health` terminen correctamente. Abre el dominio HTTPS de Render e inicia sesión como administrador. Desde el panel genera una invitación y comprueba su aceptación, creación/edición de un perfil y su QR. `/health` debe informar `"database":"supabase_cloud"`.
 6. Si es el primer despliegue y aún no hay una cuenta administradora, sigue los pasos de la sección [Supabase](#supabase) para crear una cuenta inicial segura. Las cuentas nuevas posteriores se crean mediante invitaciones.
 7. Si más adelante agregas un dominio propio, actualiza `BASE_URL` en Render y vuelve a desplegar. Verifica los enlaces de QR existentes y regenera o reimprime los que todavía apunten al dominio anterior.

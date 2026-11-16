@@ -25,101 +25,7 @@ if (supabaseUrl && supabaseKey && !supabaseKey.includes('tu_supabase')) {
   console.log('[DB] Modo local/memoria activo (configura SUPABASE_SERVICE_ROLE_KEY para persistencia en la nube)');
 }
 
-// Datos demo en memoria para desarrollo local
-let localProfiles = [
-  {
-    id: 'demo-123',
-    public_token: 'token-carlos-123',
-    is_active: true,
-    fullName: 'Carlos Andrés Morales Díaz',
-    birthDate: '1988-06-15',
-    age: 38,
-    nationalId: '16.789.432-K',
-    bloodType: 'O+',
-    organDonor: true,
-    photoUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=300&q=80',
-    primaryContact: {
-      name: 'Sofía Valentina Morales (Esposa)',
-      relationship: 'Cónyuge',
-      phone: '+56912345678',
-      whatsapp: '56912345678'
-    },
-    secondaryContact: {
-      name: 'Dr. Roberto Mendoza',
-      relationship: 'Médico de Cabecera',
-      phone: '+56987654321',
-      whatsapp: '56987654321'
-    },
-    allergies: [
-      'Penicilina (Reacción anafiláctica severa)',
-      'Maní y frutos secos',
-      'Iodo de contraste radiológico'
-    ],
-    conditions: [
-      'Diabetes Mellitus Tipo 1 (Insulino dependiente)',
-      'Asma bronquial estacional',
-      'Hipertensión arterial controlada'
-    ],
-    medications: [
-      'Insulina Glargina 22 UI (cada 24h por la noche)',
-      'Insulina Lispro antes de cada comida',
-      'Salbutamol spray 100mcg (solo rescate)'
-    ],
-    insurance: {
-      company: 'Cruz Blanca / Banmédica',
-      policyNumber: 'CB-984420-2026',
-      emergencyLine: '+56226001000'
-    },
-    preferredHospital: 'Clínica Alemana / Hospital del Salvador',
-    medicalNotes: 'Usa bomba de infusión continua y sensor continuo de glucosa (Freestyle Libre) en brazo izquierdo. Prótesis de titanio en fémur derecho (año 2019).',
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString()
-  },
-  {
-    id: 'demo-456',
-    public_token: 'token-elena-456',
-    is_active: true,
-    fullName: 'Elena Patricia Gómez Rivas',
-    birthDate: '1995-11-20',
-    age: 30,
-    nationalId: '18.902.311-5',
-    bloodType: 'A-',
-    organDonor: true,
-    photoUrl: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&w=300&q=80',
-    primaryContact: {
-      name: 'Marcelo Gómez (Hermano)',
-      relationship: 'Hermano',
-      phone: '+56977112233',
-      whatsapp: '56977112233'
-    },
-    secondaryContact: {
-      name: 'Carmen Rivas (Madre)',
-      relationship: 'Madre',
-      phone: '+56966554433',
-      whatsapp: '56966554433'
-    },
-    allergies: [
-      'Sulfamidas y AINEs (Ibuprofeno, Diclofenaco)',
-      'Picadura de avispas'
-    ],
-    conditions: [
-      'Epilepsia mioclónica juvenil (bajo control)'
-    ],
-    medications: [
-      'Levetiracetam 500mg (1 comprimido cada 12 hrs)',
-      'Loratadina 10mg (en caso de rinitis)'
-    ],
-    insurance: {
-      company: 'Fonasa Tramo B',
-      policyNumber: 'FON-18902311',
-      emergencyLine: '131 (SAMU)'
-    },
-    preferredHospital: 'Hospital San Juan de Dios',
-    medicalNotes: 'Lleva autoinyector de epinefrina (EpiPen) en su bolso de mano.',
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString()
-  }
-];
+let localProfiles = [];
 
 // Helper para mapear columnas de base de datos SQL a camelCase de JavaScript
 function mapFromDb(row) {
@@ -153,7 +59,7 @@ function mapFromDb(row) {
 function mapToDb(p) {
   return {
     id: p.id,
-    user_id: p.user_id || 'user-default',
+    user_id: p.user_id || null,
     public_token: p.public_token,
     is_active: p.is_active !== false,
     full_name: p.fullName || p.profile_name,
@@ -237,18 +143,21 @@ async function createProfile(profileData) {
   if (supabase) {
     const dbRow = mapToDb(profileData);
     dbRow.created_at = new Date().toISOString();
-
-    const { data, error } = await supabase
-      .from('profiles')
-      .insert([dbRow])
-      .select()
-      .single();
+    const { data, error } = await supabase.rpc('create_profile_with_limit', {
+      target_user_id: profileData.user_id,
+      profile_data: dbRow,
+    });
 
     if (error) {
       console.error('[DB Error] createProfile:', error.message);
+      if (error.code === 'P0001' && error.message.includes('PROFILE_LIMIT_REACHED')) {
+        const limitError = new Error('Se alcanzó el límite de fichas médicas asignado a esta cuenta.');
+        limitError.code = 'PROFILE_LIMIT_REACHED';
+        throw limitError;
+      }
       throw new Error('Error al guardar en Supabase: ' + error.message);
     }
-    return mapFromDb(data);
+    return mapFromDb(Array.isArray(data) ? data[0] : data);
   }
 
   localProfiles.unshift(profileData);

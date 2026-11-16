@@ -87,6 +87,7 @@ const openApiSpec = {
         properties: {
           token: { type: 'string', minLength: 43, maxLength: 43 },
           password: { type: 'string', format: 'password', minLength: 12 },
+          plan: { type: 'string', enum: ['individual', 'familiar', 'institucion'], nullable: true, description: 'Plan seleccionado al aceptar la invitación.' },
         },
       },
       CreateInvitationRequest: {
@@ -117,6 +118,8 @@ const openApiSpec = {
           role: { type: 'string' },
           isActive: { type: 'boolean' },
           createdAt: { type: 'string', format: 'date-time' },
+          maxProfiles: { type: 'integer', minimum: 1, maximum: 10000, nullable: true, description: 'NULL significa sin límite.' },
+          accountExpiresAt: { type: 'string', format: 'date-time', nullable: true, description: 'NULL significa sin vencimiento.' },
         },
       },
       AuthResponse: {
@@ -303,6 +306,17 @@ const openApiSpec = {
         },
       },
     },
+    '/api/auth/admin/invitations/{id}': {
+      delete: {
+        tags: ['Administration'],
+        summary: 'Eliminar el registro de una invitación sin modificar la cuenta',
+        security: bearer,
+        parameters: pathId,
+        responses: {
+          ...responses([[200, 'Registro de invitación eliminado'], [400, 'Identificador inválido'], [403, 'Se requieren privilegios de administrador'], [404, 'Invitación no encontrada']]),
+        },
+      },
+    },
     '/api/auth/login': {
       post: {
         tags: ['Authentication'],
@@ -374,6 +388,28 @@ const openApiSpec = {
         },
       },
     },
+    '/api/auth/admin/users/{id}/limits': {
+      patch: {
+        tags: ['Administration'],
+        summary: 'Asignar el máximo de fichas y la fecha opcional de vencimiento de una cuenta',
+        security: bearer,
+        parameters: pathId,
+        requestBody: {
+          required: true,
+          ...json({
+            type: 'object',
+            required: ['maxProfiles', 'accountExpiresAt'],
+            properties: {
+              maxProfiles: { type: 'integer', minimum: 1, maximum: 10000, nullable: true, description: 'Usa null para quitar el límite.' },
+              accountExpiresAt: { type: 'string', format: 'date', nullable: true, description: 'Usa null para que la cuenta no venza.' },
+            },
+          }),
+        },
+        responses: {
+          ...responses([[200, 'Límites actualizados', ref('User')], [400, 'Límite o fecha inválidos'], [403, 'Se requieren privilegios de administrador'], [404, 'Usuario no encontrado']]),
+        },
+      },
+    },
     '/api/auth/admin/users/{id}': {
       delete: {
         tags: ['Administration'],
@@ -403,6 +439,15 @@ const openApiSpec = {
         parameters: pathId,
         responses: {
           ...responses([[200, 'Ficha médica completa', ref('Profile')], [401, 'Sesión inválida'], [403, 'Se requieren privilegios de administrador'], [404, 'Ficha no encontrada']]),
+        },
+        delete: {
+          tags: ['Administration'],
+          summary: 'Eliminar permanentemente una ficha médica',
+          security: bearer,
+          parameters: pathId,
+          responses: {
+            ...responses([[200, 'Ficha médica eliminada'], [400, 'Identificador inválido'], [403, 'Se requieren privilegios de administrador'], [404, 'Ficha no encontrada']]),
+          },
         },
       },
     },
