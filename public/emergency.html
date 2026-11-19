@@ -94,6 +94,18 @@
       border: 3px solid #ef4444;
       flex-shrink: 0;
     }
+    .avatar-initials {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #fee2e2;
+      color: #b91c1c;
+      font-size: 1.6rem;
+      font-weight: 900;
+    }
+    .avatar-img[hidden] {
+      display: none;
+    }
     .blood-badge {
       display: inline-block;
       background: #fee2e2;
@@ -148,13 +160,10 @@
 
     <!-- 1. IDENTIFICACIÓN PRINCIPAL -->
     <section class="card" style="display: flex; align-items: center; gap: 1rem;">
-      <img 
-        id="patientPhoto"
-        src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=300&q=80" 
-        alt="Foto del paciente" 
-        class="avatar-img"
-        onerror="this.src='https://via.placeholder.com/100?text=PACIENTE'"
-      />
+      <!-- Sin foto registrada se muestran las iniciales: nunca una foto genérica que
+           pueda confundirse con el paciente. -->
+      <img id="patientPhoto" alt="Foto del paciente" class="avatar-img" hidden />
+      <div id="patientInitials" class="avatar-img avatar-initials" aria-hidden="true">?</div>
       <div style="min-width: 0; flex: 1;">
         <h1 id="patientName" style="font-size: 1.25rem; font-weight: 900; margin: 0; color: #0f172a; line-height: 1.2;">Cargando...</h1>
         <p id="patientSub" style="font-size: 0.8rem; color: #64748b; margin: 0.25rem 0 0.5rem;">Nac: --</p>
@@ -246,10 +255,16 @@
   </footer>
 
   <!-- LÓGICA DE CARGA Y RENDERIZADO -->
+  <script src="/js/emergency-cache.js"></script>
   <script>
     (async function initEmergencyApp() {
       const urlParams = new URLSearchParams(window.location.search);
       const token = urlParams.get('token') || urlParams.get('id');
+
+      // Copia local para seguir viendo la ficha sin señal (ver js/emergency-cache.js).
+      let storage = null;
+      try { storage = window.localStorage; } catch (e) {}
+      EmergencyCache.purgeExpired(storage);
 
       const loadingState = document.getElementById('loadingState');
       const errorState = document.getElementById('errorState');
@@ -269,6 +284,8 @@
         const response = await fetch('/api/v1/emergency/' + encodeURIComponent(token));
 
         if (response.status === 403) {
+          // Ficha pausada o cuenta vencida/suspendida: no debe quedar copia en este teléfono.
+          EmergencyCache.remove(storage, token);
           const errData = await response.json();
           loadingState.style.display = 'none';
           errorTitle.textContent = errData.code === 'ACCOUNT_EXPIRED'
@@ -279,32 +296,56 @@
           return;
         }
 
+        if (response.status === 404) {
+          // Ficha eliminada o QR regenerado: borrar la copia y NO mostrarla.
+          EmergencyCache.remove(storage, token);
+          loadingState.style.display = 'none';
+          errorTitle.textContent = 'Código QR no válido';
+          errorMessage.textContent = 'Esta ficha médica no existe o su código QR fue reemplazado por el titular.';
+          errorState.style.display = 'flex';
+          return;
+        }
+
         if (!response.ok) {
-          throw new Error('Ficha médica no encontrada o código no registrado.');
+          // Error del servidor o demasiadas consultas: se puede usar la copia local.
+          throw new Error('No se pudo consultar la ficha médica en este momento. Inténtalo nuevamente.');
         }
 
         const data = await response.json();
         renderProfile(data);
 
-        // Guardar en caché offline para rescates sin cobertura
-        try {
-          localStorage.setItem('emg_cache_' + token, JSON.stringify(data));
-        } catch(e) {}
+        // Guardar copia local temporal para rescates sin cobertura
+        EmergencyCache.save(storage, token, data);
 
       } catch (err) {
-        // Fallback a caché offline si se pierde conexión
-        const cached = localStorage.getItem('emg_cache_' + token);
+        // Sin señal o servidor caído: usar la copia local solo si sigue vigente.
+        const cached = EmergencyCache.load(storage, token);
         if (cached) {
           try {
-            renderProfile(JSON.parse(cached));
+            renderProfile(cached.data);
+            showOfflineNotice(cached.savedAt);
             return;
           } catch(e) {}
         }
 
         loadingState.style.display = 'none';
         errorTitle.textContent = 'Error de Carga';
-        errorMessage.textContent = err.message;
+        errorMessage.textContent = err instanceof TypeError
+          ? 'Sin conexión a internet. Revisa la señal e inténtalo nuevamente.'
+          : err.message;
         errorState.style.display = 'flex';
+      }
+
+      function showOfflineNotice(savedAt) {
+        const minutes = Math.max(0, Math.round((Date.now() - savedAt) / 60000));
+        const ago = minutes < 1 ? 'hace menos de un minuto'
+          : minutes < 60 ? `hace ${minutes} min`
+            : `hace ${Math.floor(minutes / 60)} h ${minutes % 60} min`;
+        const notice = document.createElement('div');
+        notice.setAttribute('role', 'status');
+        notice.style.cssText = 'background:#fef3c7;border:1px solid #f59e0b;color:#92400e;border-radius:0.75rem;padding:0.75rem 1rem;font-size:0.82rem;font-weight:600;';
+        notice.textContent = `Sin conexión: mostrando datos guardados en este teléfono ${ago}. Pueden no estar actualizados.`;
+        patientContent.prepend(notice);
       }
 
       function renderProfile(p) {
@@ -317,9 +358,24 @@
 
         document.title = `🚨 URGENCIA: ${name} (${blood})`;
 
-        // Foto y Nombres
-        if (p.photoUrl || p.photo_url) {
-          document.getElementById('patientPhoto').src = p.photoUrl || p.photo_url;
+        // Foto y Nombres (sin foto o si falla la carga: iniciales del paciente)
+        const photo = document.getElementById('patientPhoto');
+        const initialsBox = document.getElementById('patientInitials');
+        initialsBox.textContent = name.split(/\s+/).filter(Boolean).map(part => part[0]).slice(0, 2).join('').toUpperCase() || '?';
+        const showInitials = () => {
+          photo.hidden = true;
+          photo.removeAttribute('src');
+          initialsBox.hidden = false;
+        };
+        const photoUrl = p.photoUrl || p.photo_url;
+        if (photoUrl) {
+          photo.onerror = showInitials;
+          photo.onload = () => { initialsBox.hidden = true; };
+          photo.src = photoUrl;
+          photo.hidden = false;
+          initialsBox.hidden = true;
+        } else {
+          showInitials();
         }
         document.getElementById('patientName').textContent = name;
         
