@@ -88,15 +88,20 @@ test('works without storage or when storage throws (private mode, blocked site d
 
 test('emergency page uses the cache module, clears it on 403/404 and never writes raw copies', () => {
   const html = fs.readFileSync(path.join(__dirname, '..', 'public', 'emergency.html'), 'utf8');
+  const script = fs.readFileSync(path.join(__dirname, '..', 'public', 'js', 'emergency.js'), 'utf8');
 
-  assert.match(html, /<script src="\/js\/emergency-cache\.js"><\/script>/);
-  assert.match(html, /EmergencyCache\.purgeExpired\(storage\)/);
-  assert.doesNotMatch(html, /localStorage\.(setItem|getItem)\(\s*'emg_cache_'/, 'sin escrituras directas sin vencimiento');
+  // El módulo de caché se carga antes que la lógica de la página.
+  assert.ok(
+    html.indexOf('<script src="/js/emergency-cache.js"></script>') <
+      html.indexOf('<script src="/js/emergency.js"></script>'),
+  );
+  assert.match(script, /EmergencyCache\.purgeExpired\(storage\)/);
+  assert.doesNotMatch(script, /localStorage\.(setItem|getItem)\(\s*'emg_cache_'/, 'sin escrituras directas sin vencimiento');
 
   const branch = status => {
-    const start = html.indexOf(`response.status === ${status}`);
+    const start = script.indexOf(`response.status === ${status}`);
     assert.notEqual(start, -1, `existe el manejo del ${status}`);
-    return html.slice(start, html.indexOf('return;', start));
+    return script.slice(start, script.indexOf('return;', start));
   };
   assert.match(branch(403), /EmergencyCache\.remove\(storage, token\)/);
   assert.match(branch(404), /EmergencyCache\.remove\(storage, token\)/);
@@ -105,6 +110,7 @@ test('emergency page uses the cache module, clears it on 403/404 and never write
 
 test('emergency page never shows a stock photo that could be mistaken for the patient', () => {
   const html = fs.readFileSync(path.join(__dirname, '..', 'public', 'emergency.html'), 'utf8');
-  assert.doesNotMatch(html, /unsplash\.com|placeholder\.com/);
+  const script = fs.readFileSync(path.join(__dirname, '..', 'public', 'js', 'emergency.js'), 'utf8');
+  assert.doesNotMatch(html + script, /unsplash\.com|placeholder\.com/);
   assert.match(html, /id="patientInitials"/);
 });

@@ -215,7 +215,10 @@ test('only admins can administer accounts, and account actions immediately affec
 
   const emergencyPage = await fetch(`${baseUrl}/emergency.html`);
   assert.equal(emergencyPage.status, 200);
-  const emergencyHtml = await emergencyPage.text();
+  assert.match(await emergencyPage.text(), /<script src="\/js\/emergency\.js"><\/script>/);
+  const emergencyScript = await fetch(`${baseUrl}/js/emergency.js`);
+  assert.equal(emergencyScript.status, 200);
+  const emergencyHtml = await emergencyScript.text();
   assert.match(emergencyHtml, /locationContactActions/);
   assert.match(emergencyHtml, /Abrir WhatsApp para/);
   assert.match(emergencyHtml, /target = '_blank'/);

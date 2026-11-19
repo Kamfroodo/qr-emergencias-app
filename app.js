@@ -30,16 +30,36 @@ if (trustProxy) app.set('trust proxy', /^\d+$/.test(trustProxy) ? Number(trustPr
 // ==========================================
 app.use(cors());
 
-// Helmet para cabeceras seguras (ajustado para permitir estilos y scripts locales)
+// Las fotos se sirven con URL firmadas desde Supabase Storage: solo ese origen.
+const supabaseOrigin = (() => {
+  try {
+    return new URL(process.env.SUPABASE_URL).origin;
+  } catch {
+    return null;
+  }
+})();
+
+// Helmet + Content-Security-Policy estricta:
+//  - Solo scripts propios (sin inline ni CDN): un texto inyectado no se ejecuta,
+//    lo que protege el token de sesión guardado en el navegador.
+//  - Imágenes solo propias, data:/blob: (QR y vista previa) y el Storage de Supabase:
+//    la ficha pública no carga imágenes de terceros que rastreen a quien escanea.
+//  - Los estilos inline se mantienen: las páginas los usan mucho y no ejecutan código.
 app.use(
   helmet({
     contentSecurityPolicy: {
       directives: {
         defaultSrc: ["'self'"],
-        scriptSrc: ["'self'", "'unsafe-inline'", "https://cdn.tailwindcss.com"],
+        scriptSrc: ["'self'"],
+        scriptSrcAttr: ["'none'"],
         styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
         fontSrc: ["'self'", "https://fonts.gstatic.com"],
-        imgSrc: ["'self'", "data:", "https://*", "http://*"],
+        imgSrc: ["'self'", "data:", "blob:", ...(supabaseOrigin ? [supabaseOrigin] : [])],
+        connectSrc: ["'self'"],
+        objectSrc: ["'none'"],
+        baseUri: ["'self'"],
+        formAction: ["'self'"],
+        frameAncestors: ["'none'"],
       },
     },
     crossOriginEmbedderPolicy: false,
