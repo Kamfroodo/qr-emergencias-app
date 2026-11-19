@@ -108,7 +108,7 @@ test('only admins can administer accounts, and account actions immediately affec
 
   const createdInvitation = await request('/api/auth/admin/invitations', {
     method: 'POST',
-    body: { email: memberEmail, fullName: 'Platform Member' },
+    body: { email: memberEmail, fullName: 'Platform Member', plan: 'familiar' },
     token: adminToken,
   });
   assert.equal(createdInvitation.response.status, 201);
@@ -129,7 +129,7 @@ test('only admins can administer accounts, and account actions immediately affec
   const memberToken = await login(memberEmail);
   const memberInviteForbidden = await request('/api/auth/admin/invitations', {
     method: 'POST',
-    body: { email: `forbidden-${suffix}@example.com`, fullName: 'Forbidden Invite' },
+    body: { email: `forbidden-${suffix}@example.com`, fullName: 'Forbidden Invite', plan: 'individual' },
     token: memberToken,
   });
   assert.equal(memberInviteForbidden.response.status, 403);
@@ -153,7 +153,7 @@ test('only admins can administer accounts, and account actions immediately affec
 
   const revocableInvitation = await request('/api/auth/admin/invitations', {
     method: 'POST',
-    body: { email: `revoked-${suffix}@example.com`, fullName: 'Revoked User' },
+    body: { email: `revoked-${suffix}@example.com`, fullName: 'Revoked User', plan: 'individual' },
     token: adminToken,
   });
   assert.equal(revocableInvitation.response.status, 201);
@@ -168,13 +168,13 @@ test('only admins can administer accounts, and account actions immediately affec
 
   const originalInvitation = await request('/api/auth/admin/invitations', {
     method: 'POST',
-    body: { email: `renew-${suffix}@example.com`, fullName: 'Renewed User' },
+    body: { email: `renew-${suffix}@example.com`, fullName: 'Renewed User', plan: 'individual' },
     token: adminToken,
   });
   const originalToken = new URL(originalInvitation.body.invitationUrl).searchParams.get('token');
   const renewedInvitation = await request('/api/auth/admin/invitations', {
     method: 'POST',
-    body: { email: `renew-${suffix}@example.com`, fullName: 'Renewed User' },
+    body: { email: `renew-${suffix}@example.com`, fullName: 'Renewed User', plan: 'individual' },
     token: adminToken,
   });
   const renewedToken = new URL(renewedInvitation.body.invitationUrl).searchParams.get('token');
@@ -189,7 +189,7 @@ test('only admins can administer accounts, and account actions immediately affec
   assert.equal(listed.response.status, 200);
   assert.ok(listed.body.some(user => user.id === member.id));
   assert.ok(listed.body.every(user => !Object.hasOwn(user, 'password_hash')));
-  assert.ok(listed.body.find(user => user.id === member.id).maxProfiles === null);
+  assert.ok(listed.body.find(user => user.id === member.id).maxProfiles === 5);
 
   const selfRole = await request(`/api/auth/admin/users/${admin.id}/role`, {
     method: 'PATCH',

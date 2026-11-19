@@ -38,27 +38,31 @@ De acuerdo al esquema tarifario oficial de **DashLab QR Emergencias**:
 
 ---
 
-## 3. Selección y Visualización de Planes al Ingresar a la Plataforma
+## 3. Asignación y Visualización de Planes
 
-### A. Al ingresar por primera vez desde el enlace de invitación (`/accept-invitation.html`):
-Cuando un usuario hace clic en su enlace de invitación personal, la pantalla le presenta de forma interactiva y visual los 3 planes disponibles exactamente como en el flyer de **DASHLAB**:
-1. **Plan Individual:** \$5.000 / año (1 ficha médica · 1 QR · 1 contacto · Soporte).
-2. **Plan Familiar:** \$19.990 / año (5 fichas médicas · 5 QR personalizados · 5 contactos).
-3. **Plan Institución:** \$180.990 / 6 meses (100 fichas médicas · 100 QR personalizados · 100 contactos · Precio conversable).
+> **Los planes son pagados y solo los asigna el administrador.** El usuario nunca elige ni cambia su propio plan: así nadie puede activarse un plan sin haberlo pagado. (`POST /api/auth/select-plan` responde `403 PLAN_ASSIGNED_BY_ADMIN`.)
 
-El usuario:
-* Selecciona la tarjeta del plan deseado (con indicador visual y borde iluminado).
-* Ingresa su contraseña segura.
-* Presiona **"Activar Cuenta con [Plan Seleccionado]"**.
-* El sistema guarda el plan elegido de inmediato, calculando sus fichas y fecha de vencimiento (+1 año o +6 meses) sin requerir intervención manual del admin.
+### A. Al crear la invitación (`/admin.html`):
+Después de confirmar el pago, el administrador crea la invitación y elige el **Plan contratado** (campo obligatorio):
+1. **Plan Individual:** \$5.000 / año → 1 ficha, vence en 1 año.
+2. **Plan Familiar:** \$19.990 / año → 5 fichas, vence en 1 año.
+3. **Plan Institución:** \$180.990 / 6 meses → 100 fichas, vence en 6 meses.
+4. **Ilimitado / Especial:** a convenir → sin límite de fichas ni vencimiento.
 
-### B. En el Dashboard de usuario (`/dashboard.html`):
-* En la barra de métricas superiores (**stats**), el usuario siempre visualiza su plan activo, el límite de fichas y la fecha de vigencia:
+El plan queda guardado en la invitación (`user_invitations.plan_type`) y se muestra en la tabla de invitaciones. "Generar nuevo enlace" conserva el mismo plan.
+
+### B. Al activar la cuenta desde el enlace (`/accept-invitation.html`):
+* La pantalla muestra **solo el plan asignado** (no se puede cambiar).
+* El usuario crea su contraseña y presiona **"Activar Cuenta"**.
+* La cuenta se crea con los límites y la vigencia del plan en la misma transacción SQL (`accept_user_invitation`), contada desde la activación. Si el navegador envía otro plan, se ignora.
+
+### C. En el Dashboard de usuario (`/dashboard.html`):
+* En la barra de métricas superiores (**stats**), el usuario ve su plan, el límite de fichas y la fecha de vigencia:
   * `📋 Fichas médicas: X de 5 (Plan Familiar)`
-  * `⭐ Plan actual: Plan Familiar · Vigencia: dd/mm/aaaa`
-* **Primer ingreso sin plan:** Si un usuario entra por primera vez y su cuenta aún no tiene plan, se despliega automáticamente un banner y modal de bienvenida con las 3 tarjetas de planes para que elija su plan en un solo clic mediante el endpoint `POST /api/auth/select-plan`.
+  * `⭐ Plan Familiar · Vigencia: dd/mm/aaaa`
+* Al hacer clic en el plan se abre el catálogo de planes, solo informativo, con el aviso de que para contratar, renovar o cambiar de plan debe contactar al administrador.
 
-### C. Asignación y Cambio desde el Panel de Administración (`/admin.html`):
+### D. Cambio o renovación desde el Panel de Administración (`/admin.html`):
 El administrador siempre tiene el control total para cambiar, renovar o asignar planes:
 1. En `/admin.html`, ubica al usuario en la columna **Límite y vencimiento**.
 2. Usa el selector **⚡ Asignar plan rápido...**:

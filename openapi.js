@@ -87,15 +87,16 @@ const openApiSpec = {
         properties: {
           token: { type: 'string', minLength: 43, maxLength: 43 },
           password: { type: 'string', format: 'password', minLength: 12 },
-          plan: { type: 'string', enum: ['individual', 'familiar', 'institucion'], nullable: true, description: 'Plan seleccionado al aceptar la invitación.' },
         },
+        description: 'El plan no se envía: lo fija el administrador al crear la invitación.',
       },
       CreateInvitationRequest: {
         type: 'object',
-        required: ['email', 'fullName'],
+        required: ['email', 'fullName', 'plan'],
         properties: {
           email: { type: 'string', format: 'email', maxLength: 254 },
           fullName: { type: 'string', minLength: 1, maxLength: 160 },
+          plan: { type: 'string', enum: ['individual', 'familiar', 'institucion', 'ilimitado'], description: 'Plan pagado que tendrá la cuenta.' },
         },
       },
       Invitation: {
@@ -104,6 +105,7 @@ const openApiSpec = {
           id: { type: 'string', format: 'uuid' },
           email: { type: 'string', format: 'email' },
           fullName: { type: 'string' },
+          plan: { type: 'string', enum: ['individual', 'familiar', 'institucion', 'ilimitado'] },
           createdAt: { type: 'string', format: 'date-time' },
           expiresAt: { type: 'string', format: 'date-time' },
           status: { type: 'string', enum: ['pending', 'accepted', 'revoked', 'expired'] },

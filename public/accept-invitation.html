@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex, nofollow">
-  <title>Elige tu Plan y Activa tu Cuenta | QR Emergencias</title>
+  <title>Activa tu Cuenta | QR Emergencias</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
@@ -130,13 +130,16 @@
       border: 2px solid var(--border-card);
       border-radius: 16px;
       padding: 1.25rem 1.5rem;
-      cursor: pointer;
+      cursor: default;
       transition: all 0.25s ease;
       display: flex;
       align-items: center;
       justify-content: space-between;
       position: relative;
       user-select: none;
+    }
+    .plan-card[hidden] {
+      display: none;
     }
     .plan-card:hover {
       border-color: rgba(239, 35, 60, 0.5);
@@ -366,7 +369,7 @@
     </header>
 
     <!-- Hero Title -->
-    <h1 class="hero-title">Elige el plan <span class="highlight-pink">ideal</span> para ti.</h1>
+    <h1 class="hero-title">Tu plan <span class="highlight-pink">ya está listo</span>.</h1>
     <p class="hero-subtitle">Protege a quienes más quieres con su ficha médica en un QR.</p>
 
     <!-- Status / Loading -->
@@ -376,10 +379,10 @@
 
     <!-- Main Content (Shown if invitation valid) -->
     <div id="invitationContent" style="display: none;">
-      <!-- Planes seleccionables -->
+      <!-- Plan asignado por el administrador (solo informativo: se muestra únicamente el de la invitación) -->
       <div class="plans-grid">
         <!-- PLAN 1: INDIVIDUAL -->
-        <div class="plan-card" data-plan="individual">
+        <div class="plan-card" data-plan="individual" hidden>
           <div class="plan-info">
             <div class="plan-tag">POR UN AÑO</div>
             <div class="plan-name">Individual</div>
@@ -392,8 +395,8 @@
           <div class="plan-check">✓</div>
         </div>
 
-        <!-- PLAN 2: FAMILIAR (DEFAULT) -->
-        <div class="plan-card selected" data-plan="familiar">
+        <!-- PLAN 2: FAMILIAR -->
+        <div class="plan-card" data-plan="familiar" hidden>
           <div class="plan-info">
             <div class="plan-tag">PLAN</div>
             <div class="plan-name">Familiar</div>
@@ -407,7 +410,7 @@
         </div>
 
         <!-- PLAN 3: INSTITUCIÓN -->
-        <div class="plan-card" data-plan="institucion">
+        <div class="plan-card" data-plan="institucion" hidden>
           <div class="plan-info">
             <div class="plan-tag">PLAN <span class="plan-badge-pill">Precio conversable</span></div>
             <div class="plan-name">Institución</div>
@@ -419,7 +422,21 @@
           </div>
           <div class="plan-check">✓</div>
         </div>
+
+        <!-- PLAN 4: ILIMITADO / ESPECIAL -->
+        <div class="plan-card" data-plan="ilimitado" hidden>
+          <div class="plan-info">
+            <div class="plan-tag">PLAN ESPECIAL</div>
+            <div class="plan-name">Ilimitado</div>
+            <div class="plan-features">Fichas ilimitadas · Sin vencimiento · Soporte personalizado</div>
+          </div>
+          <div class="plan-pricing">
+            <div class="plan-price">A convenir</div>
+          </div>
+          <div class="plan-check">✓</div>
+        </div>
       </div>
+      <p class="hero-subtitle" style="margin-top: 0.75rem;">Este plan fue asignado por el administrador. Para cambiarlo o renovarlo, contáctalo.</p>
 
       <!-- Formulario de contraseña -->
       <div class="activation-box">
@@ -460,7 +477,7 @@
           </div>
 
           <button id="btnSubmit" class="btn-submit" type="submit">
-            <span>🚀 Activar Cuenta con Plan Familiar</span>
+            <span>🚀 Activar Cuenta</span>
           </button>
         </form>
 
@@ -492,26 +509,28 @@
     const alertBox = document.getElementById('alertBox');
     const planCards = document.querySelectorAll('.plan-card');
 
-    let selectedPlan = 'familiar';
+    // El plan lo fija el administrador en la invitación; aquí solo se muestra.
+    let assignedPlan = null;
 
     const planLabels = {
-      individual: 'Plan Individual ($5.000 / año)',
-      familiar: 'Plan Familiar ($19.990 / año)',
-      institucion: 'Plan Institución ($180.990 / 6 meses)'
+      individual: 'Plan Individual',
+      familiar: 'Plan Familiar',
+      institucion: 'Plan Institución',
+      ilimitado: 'Plan Ilimitado'
     };
 
     function updateSubmitButton() {
-      btnSubmit.innerHTML = `<span>🚀 Activar Cuenta con ${planLabels[selectedPlan] || 'tu Plan'}</span>`;
+      btnSubmit.textContent = `🚀 Activar Cuenta${planLabels[assignedPlan] ? ` con ${planLabels[assignedPlan]}` : ''}`;
     }
 
-    planCards.forEach(card => {
-      card.addEventListener('click', () => {
-        planCards.forEach(c => c.classList.remove('selected'));
-        card.classList.add('selected');
-        selectedPlan = card.dataset.plan;
-        updateSubmitButton();
+    function showAssignedPlan(plan) {
+      assignedPlan = plan;
+      planCards.forEach(card => {
+        const isAssigned = card.dataset.plan === plan;
+        card.hidden = !isAssigned;
+        card.classList.toggle('selected', isAssigned);
       });
-    });
+    }
 
     function showAlert(text, type = 'error') {
       alertBox.textContent = text;
@@ -534,6 +553,7 @@
         }
         statusBox.style.display = 'none';
         userEmailSpan.textContent = result.email;
+        showAssignedPlan(result.plan);
         invitationContent.style.display = 'block';
         updateSubmitButton();
       } catch (err) {
@@ -557,17 +577,13 @@
       }
 
       btnSubmit.disabled = true;
-      btnSubmit.textContent = 'Activando cuenta y configurando plan…';
+      btnSubmit.textContent = 'Activando cuenta…';
 
       try {
         const response = await fetch('/api/auth/invitation/accept', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            token,
-            password,
-            plan: selectedPlan
-          }),
+          body: JSON.stringify({ token, password }),
         });
 
         const result = await response.json();
@@ -577,7 +593,7 @@
           return showAlert(result.error || 'No se pudo activar la cuenta.');
         }
 
-        showAlert(`¡Cuenta activada con éxito con el ${planLabels[selectedPlan]}! Redirigiendo al inicio de sesión…`, 'success');
+        showAlert(`¡Cuenta activada con éxito${planLabels[assignedPlan] ? ` con el ${planLabels[assignedPlan]}` : ''}! Redirigiendo al inicio de sesión…`, 'success');
         form.reset();
 
         setTimeout(() => {

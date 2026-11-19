@@ -15,7 +15,15 @@ const openApiSpec = require('./openapi');
 // Sistema de autenticación JWT
 const { router: authRouter, verifyToken, isUserAccountValid } = require('./auth');
 
+const { emergencyLimiter } = require('./rateLimits');
+
 const app = express();
+
+// Detrás del proxy de Render, la IP real del cliente viene en X-Forwarded-For.
+// Sin esto, todos los usuarios compartirían la IP del proxy y un solo límite.
+// TRUST_PROXY permite ajustar el número de saltos de proxy si cambia la infraestructura.
+const trustProxy = process.env.TRUST_PROXY ?? (process.env.NODE_ENV === 'production' ? '1' : '');
+if (trustProxy) app.set('trust proxy', /^\d+$/.test(trustProxy) ? Number(trustProxy) : trustProxy);
 
 // ==========================================
 // Middlewares Globales
@@ -126,7 +134,7 @@ app.get('/health', (req, res) => {
 
 // --- 1. ENDPOINT PÚBLICO V1 (Escaneo del QR por Paramédicos) ---
 // Acceso instantáneo con token público seguro sin exponer el ID interno
-app.get('/api/v1/emergency/:publicToken', async (req, res) => {
+app.get('/api/v1/emergency/:publicToken', emergencyLimiter, async (req, res) => {
   try {
     const { publicToken } = req.params;
 

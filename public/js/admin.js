@@ -199,6 +199,13 @@ function showInvitationLink(url) {
   input.select();
 }
 
+const INVITATION_PLAN_LABELS = {
+  individual: 'Individual',
+  familiar: 'Familiar',
+  institucion: 'Institución',
+  ilimitado: 'Ilimitado',
+};
+
 function renderInvitations() {
   invitationCount.textContent = `${invitations.length} invitaciones recientes`;
   invitationsTable.replaceChildren();
@@ -206,7 +213,7 @@ function renderInvitations() {
   if (!invitations.length) {
     const row = element('tr');
     const cell = element('td', 'empty-state', 'Todavía no hay invitaciones.');
-    cell.colSpan = 5;
+    cell.colSpan = 6;
     row.append(cell);
     invitationsTable.append(row);
     return;
@@ -222,6 +229,7 @@ function renderInvitations() {
     const row = document.createElement('tr');
     const nameCell = element('td', 'user-name', invitation.fullName);
     const emailCell = element('td', '', invitation.email);
+    const planCell = element('td', '', INVITATION_PLAN_LABELS[invitation.plan] || 'Sin plan');
     const expiresCell = element('td', '', new Date(invitation.expiresAt).toLocaleString());
     const statusCell = element('td');
     const [label, badge] = labels[invitation.status] || ['Desconocido', 'badge-suspended'];
@@ -235,6 +243,7 @@ function renderInvitations() {
       renew.addEventListener('click', () => createInvitation({
         email: invitation.email,
         fullName: invitation.fullName,
+        plan: invitation.plan || 'individual',
       }));
       actions.append(renew);
     }
@@ -250,7 +259,7 @@ function renderInvitations() {
     remove.addEventListener('click', () => deleteInvitation(invitation));
     actions.append(remove);
     actionsCell.append(actions);
-    row.append(nameCell, emailCell, expiresCell, statusCell, actionsCell);
+    row.append(nameCell, emailCell, planCell, expiresCell, statusCell, actionsCell);
     invitationsTable.append(row);
   }
 }
@@ -617,6 +626,7 @@ invitationForm.addEventListener('submit', event => {
   createInvitation({
     fullName: String(formData.get('fullName') || '').trim(),
     email: String(formData.get('email') || '').trim(),
+    plan: String(formData.get('plan') || ''),
   });
 });
 document.getElementById('logoutButton').addEventListener('click', () => {

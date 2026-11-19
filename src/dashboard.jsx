@@ -93,9 +93,6 @@ function Dashboard() {
       const user = Auth.getUser();
       if (user) {
         setCurrentUser(user);
-        if (user.role !== 'admin' && user.maxProfiles == null && user.accountExpiresAt == null) {
-          setShowPlanModal(true);
-        }
         const adminLink = document.getElementById('adminLink');
         const userInfo = document.getElementById('userInfo');
         const userAvatar = document.getElementById('userAvatar');
@@ -156,64 +153,21 @@ function Dashboard() {
   }), [profiles]);
 
   const planInfo = useMemo(() => {
-    if (!currentUser) return { name: 'Cargando...', limitText: '—', expires: '—', needsPlan: false };
-    if (currentUser.maxProfiles === 1) {
-      return {
-        name: 'Plan Individual',
-        limitText: '1 ficha máx',
-        expires: currentUser.accountExpiresAt ? new Date(currentUser.accountExpiresAt).toLocaleDateString() : '1 año',
-        needsPlan: false,
-      };
-    }
-    if (currentUser.maxProfiles === 5) {
-      return {
-        name: 'Plan Familiar',
-        limitText: '5 fichas máx',
-        expires: currentUser.accountExpiresAt ? new Date(currentUser.accountExpiresAt).toLocaleDateString() : '1 año',
-        needsPlan: false,
-      };
-    }
-    if (currentUser.maxProfiles === 100) {
-      return {
-        name: 'Plan Institución',
-        limitText: '100 fichas máx',
-        expires: currentUser.accountExpiresAt ? new Date(currentUser.accountExpiresAt).toLocaleDateString() : '6 meses',
-        needsPlan: false,
-      };
-    }
+    // El plan lo asigna el administrador; aquí solo se muestra.
+    if (!currentUser) return { name: 'Cargando...', limitText: '—', expires: '—' };
+    const expires = currentUser.accountExpiresAt
+      ? new Date(currentUser.accountExpiresAt).toLocaleDateString()
+      : 'Sin vencimiento';
+    const names = { 1: 'Plan Individual', 5: 'Plan Familiar', 100: 'Plan Institución' };
     if (currentUser.maxProfiles) {
       return {
-        name: `Plan (${currentUser.maxProfiles} fichas)`,
-        limitText: `${currentUser.maxProfiles} fichas máx`,
-        expires: currentUser.accountExpiresAt ? new Date(currentUser.accountExpiresAt).toLocaleDateString() : 'Personalizado',
-        needsPlan: false,
+        name: names[currentUser.maxProfiles] || `Plan (${currentUser.maxProfiles} fichas)`,
+        limitText: `${currentUser.maxProfiles} ${currentUser.maxProfiles === 1 ? 'ficha' : 'fichas'} máx`,
+        expires,
       };
     }
-    return {
-      name: 'Sin plan asignado',
-      limitText: 'Sin límite',
-      expires: 'Elige tu plan aquí',
-      needsPlan: true,
-    };
+    return { name: 'Plan Ilimitado', limitText: 'Sin límite', expires };
   }, [currentUser]);
-
-  async function handleSelectPlan(planKey) {
-    try {
-      const response = await Auth.fetch('/api/auth/select-plan', {
-        method: 'POST',
-        body: JSON.stringify({ plan: planKey }),
-      });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || 'No se pudo asignar el plan.');
-      const updatedUser = { ...(Auth.getUser() || {}), ...data.user };
-      Auth.saveSession(Auth.getToken(), updatedUser);
-      setCurrentUser(updatedUser);
-      setShowPlanModal(false);
-      notify('¡Plan configurado correctamente con sus fichas y vigencia!');
-    } catch (err) {
-      notify(err.message, 'error');
-    }
-  }
 
   function notify(message, type = 'success') {
     setToast({ message, type });
@@ -353,59 +307,17 @@ function Dashboard() {
 
   return (
     <>
-      {planInfo.needsPlan && (
-        <section className="plan-onboarding-banner" style={{
-          background: 'linear-gradient(135deg, rgba(239, 35, 60, 0.15) 0%, rgba(13, 23, 41, 0.95) 100%)',
-          border: '2px solid #ef233c',
-          borderRadius: '16px',
-          padding: '1.25rem 1.5rem',
-          marginBottom: '1.5rem',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          flexWrap: 'wrap',
-          gap: '1rem',
-          boxShadow: '0 0 30px rgba(239, 35, 60, 0.2)'
-        }}>
-          <div>
-            <div style={{ fontSize: '0.75rem', fontWeight: 800, color: '#ff4d6d', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
-              Primer ingreso a la plataforma
-            </div>
-            <h2 style={{ fontSize: '1.35rem', fontWeight: 900, color: '#fff', margin: '0.2rem 0' }}>
-              Elige el plan ideal para ti
-            </h2>
-            <p style={{ color: '#94a3b8', fontSize: '0.88rem' }}>
-              Activa tu plan Individual (1 ficha), Familiar (5 fichas) o Institución (100 fichas) para comenzar a generar códigos QR de emergencia.
-            </p>
-          </div>
-          <button
-            type="button"
-            className="btn btn-primary"
-            style={{ padding: '0.65rem 1.25rem', fontSize: '0.95rem', fontWeight: 800 }}
-            onClick={() => setShowPlanModal(true)}
-          >
-            🚀 Elegir mi Plan
-          </button>
-        </section>
-      )}
-
       <section className="stats-grid" aria-label="Resumen de perfiles médicos">
         <Stat
           icon="📋"
           value={`${profiles.length} / ${currentUser?.maxProfiles ?? '∞'}`}
           label={`Fichas (${planInfo.limitText})`}
         />
-        <article className="stat-card" style={{ cursor: 'pointer' }} onClick={() => setShowPlanModal(true)} title="Haz clic para ver o cambiar de plan">
+        <article className="stat-card" style={{ cursor: 'pointer' }} onClick={() => setShowPlanModal(true)} title="Ver los planes disponibles">
           <div className="stat-icon red">⭐</div>
           <div className="stat-info">
             <div className="stat-value" style={{ fontSize: '1.15rem' }}>{planInfo.name}</div>
-            <div className="stat-label">
-              {planInfo.needsPlan ? (
-                <span style={{ color: '#ef233c', fontWeight: 800 }}>⚡ Elige tu plan aquí</span>
-              ) : (
-                `Vigencia: ${planInfo.expires}`
-              )}
-            </div>
+            <div className="stat-label">{`Vigencia: ${planInfo.expires}`}</div>
           </div>
         </article>
         <Stat icon="🫀" value={stats.donors} label="Donantes de órganos" />
@@ -460,7 +372,7 @@ function Dashboard() {
       )}
       {showPlanModal && (
         <PlanModal
-          onSelect={handleSelectPlan}
+          currentPlanName={planInfo.name}
           onClose={() => setShowPlanModal(false)}
         />
       )}
@@ -603,10 +515,8 @@ function Field({ label, name, value, onChange, type = 'text', placeholder, requi
   );
 }
 
-function PlanModal({ onSelect, onClose }) {
-  const [selected, setSelected] = useState('familiar');
-  const [submitting, setSubmitting] = useState(false);
-
+// Catálogo informativo: los planes son pagados y los asigna el administrador.
+function PlanModal({ currentPlanName, onClose }) {
   const plans = [
     {
       id: 'individual',
@@ -636,15 +546,6 @@ function PlanModal({ onSelect, onClose }) {
     },
   ];
 
-  async function handleConfirm() {
-    setSubmitting(true);
-    try {
-      await onSelect(selected);
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
   return (
     <div className="modal-overlay profile-overlay" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}>
       <section className="modal-content profile-modal" role="dialog" aria-modal="true" style={{ maxWidth: '640px' }}>
@@ -654,28 +555,26 @@ function PlanModal({ onSelect, onClose }) {
               DASHLAB · QR EMERGENCIAS
             </div>
             <h2 className="modal-title" style={{ fontSize: '1.4rem', fontWeight: 900 }}>
-              Elige el plan ideal para ti
+              Tu plan: {currentPlanName}
             </h2>
           </div>
           <button className="btn-close" type="button" onClick={onClose} aria-label="Cerrar">×</button>
         </header>
         <div className="modal-body" style={{ padding: '1.25rem' }}>
           <p style={{ color: '#94a3b8', fontSize: '0.88rem', marginBottom: '1.25rem' }}>
-            Protege a quienes más quieres con su ficha médica en un QR. Todos los planes incluyen cifrado seguro.
+            Para contratar, renovar o cambiar de plan, contacta al administrador. Estos son los planes disponibles:
           </p>
           <div style={{ display: 'grid', gap: '0.85rem' }}>
             {plans.map(p => {
-              const isSelected = selected === p.id;
+              const isSelected = currentPlanName === `Plan ${p.name}`;
               return (
                 <div
                   key={p.id}
-                  onClick={() => setSelected(p.id)}
                   style={{
                     padding: '1.1rem 1.25rem',
                     borderRadius: '14px',
                     border: isSelected ? '2px solid #ef233c' : '1px solid #1e2c47',
                     background: isSelected ? 'linear-gradient(135deg, rgba(239, 35, 60, 0.15) 0%, rgba(13, 23, 41, 0.95) 100%)' : '#0d1729',
-                    cursor: 'pointer',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'space-between',
@@ -721,17 +620,8 @@ function PlanModal({ onSelect, onClose }) {
             })}
           </div>
         </div>
-        <footer className="modal-footer" style={{ justifyContent: 'space-between' }}>
-          <button type="button" className="btn btn-secondary" onClick={onClose} disabled={submitting}>Cancelar</button>
-          <button
-            type="button"
-            className="btn btn-primary"
-            onClick={handleConfirm}
-            disabled={submitting}
-            style={{ fontWeight: 800 }}
-          >
-            {submitting ? 'Asignando plan…' : `Activar Plan ${plans.find(p => p.id === selected)?.name}`}
-          </button>
+        <footer className="modal-footer">
+          <button type="button" className="btn btn-primary" onClick={onClose}>Entendido</button>
         </footer>
       </section>
     </div>

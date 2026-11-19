@@ -37,6 +37,15 @@
         <label>Correo electrónico
           <input name="email" type="email" maxlength="254" autocomplete="email" required>
         </label>
+        <label>Plan contratado
+          <select name="plan" required>
+            <option value="" selected disabled>Elige el plan pagado…</option>
+            <option value="individual">Individual (1 ficha · 1 año)</option>
+            <option value="familiar">Familiar (5 fichas · 1 año)</option>
+            <option value="institucion">Institución (100 fichas · 6 meses)</option>
+            <option value="ilimitado">Ilimitado / Especial (sin vencimiento)</option>
+          </select>
+        </label>
         <button class="button button-primary" type="submit">Generar invitación</button>
       </form>
       <div id="invitationLink" class="invitation-link" hidden></div>
@@ -59,13 +68,14 @@
             <tr>
               <th>Invitado</th>
               <th>Correo</th>
+              <th>Plan</th>
               <th>Vencimiento</th>
               <th>Estado</th>
               <th>Acciones</th>
             </tr>
           </thead>
           <tbody id="invitationsTable">
-            <tr><td class="empty-state" colspan="5">Cargando invitaciones…</td></tr>
+            <tr><td class="empty-state" colspan="6">Cargando invitaciones…</td></tr>
           </tbody>
         </table>
       </div>
@@ -145,6 +155,6 @@
   </dialog>
 
   <script src="/js/auth.js"></script>
-  <script src="/js/admin.js?v=20261115c"></script>
+  <script src="/js/admin.js?v=20261118a"></script>
 </body>
 </html>

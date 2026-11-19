@@ -9,6 +9,11 @@ const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const { createHash, randomBytes } = require('node:crypto');
 const { v4: uuidv4 } = require('uuid');
+const {
+  loginPerAccountLimiter,
+  loginPerIpLimiter,
+  invitationLimiter,
+} = require('./rateLimits');
 
 const router = express.Router();
 
@@ -62,6 +67,17 @@ function hashInvitationToken(token) {
   return createHash('sha256').update(token).digest('hex');
 }
 
+// Planes que el administrador asigna al invitar (después de confirmar el pago).
+// El usuario nunca elige ni cambia su propio plan.
+const PLAN_TYPES = ['individual', 'familiar', 'institucion', 'ilimitado'];
+const PLAN_ALIASES = { institucional: 'institucion', unlimited: 'ilimitado' };
+
+function normalizePlanType(value) {
+  const normalized = String(value ?? '').trim().toLowerCase();
+  const plan = PLAN_ALIASES[normalized] || normalized;
+  return PLAN_TYPES.includes(plan) ? plan : null;
+}
+
 function publicInvitation(invitation) {
   const now = Date.now();
   const status = invitation.used_at ? 'accepted'
@@ -72,6 +88,7 @@ function publicInvitation(invitation) {
     id: invitation.id,
     email: invitation.email,
     fullName: invitation.full_name,
+    plan: invitation.plan_type ?? null,
     createdAt: invitation.created_at,
     expiresAt: invitation.expires_at,
     status,
@@ -82,7 +99,7 @@ async function listInvitations() {
   if (supabase) {
     const { data, error } = await supabase
       .from('user_invitations')
-      .select('id, email, full_name, created_at, expires_at, used_at, revoked_at')
+      .select('id, email, full_name, plan_type, created_at, expires_at, used_at, revoked_at')
       .order('created_at', { ascending: false })
       .limit(100);
     if (error) {
@@ -98,12 +115,13 @@ async function listInvitations() {
     .map(publicInvitation);
 }
 
-async function createInvitation({ email, fullName, tokenHash, createdBy }) {
+async function createInvitation({ email, fullName, planType, tokenHash, createdBy }) {
   const createdAt = new Date();
   const invitation = {
     id: uuidv4(),
     email,
     full_name: fullName,
+    plan_type: planType,
     token_hash: tokenHash,
     created_by: createdBy,
     created_at: createdAt.toISOString(),
@@ -116,6 +134,7 @@ async function createInvitation({ email, fullName, tokenHash, createdBy }) {
     const { data, error } = await supabase.rpc('admin_create_user_invitation', {
       target_email: email,
       target_full_name: fullName,
+      target_plan_type: planType,
       target_token_hash: tokenHash,
       target_created_by: createdBy,
       target_expires_at: invitation.expires_at,
@@ -123,7 +142,7 @@ async function createInvitation({ email, fullName, tokenHash, createdBy }) {
     if (error) {
       console.error('[Auth DB] createInvitation:', error.message);
       if (error.code === 'P0001') throw new Error('Ese correo ya tiene una cuenta activa. Puedes reactivarla desde la administración.');
-      throw new Error('No se pudo crear la invitación. Verifica que aplicaste la migración de acceso.');
+      throw new Error('No se pudo crear la invitación. Verifica que aplicaste supabase_invitation_plans.sql.');
     }
     return publicInvitation({ ...invitation, id: data });
   }
@@ -144,7 +163,7 @@ async function findValidInvitation(tokenHash) {
   if (supabase) {
     const { data, error } = await supabase
       .from('user_invitations')
-      .select('id, email, full_name, expires_at')
+      .select('id, email, full_name, plan_type, expires_at')
       .eq('token_hash', tokenHash)
       .is('used_at', null)
       .is('revoked_at', null)
@@ -161,9 +180,10 @@ async function findValidInvitation(tokenHash) {
   ) || null;
 }
 
+// Debe coincidir con accept_user_invitation en supabase_invitation_plans.sql.
+// Solo se usa en modo local; en Supabase los límites se fijan dentro de la transacción SQL.
 function getLimitsForPlan(planType) {
-  if (!planType) return { maxProfiles: null, accountExpiresAt: null };
-  const normalized = String(planType).trim().toLowerCase();
+  const normalized = normalizePlanType(planType);
   const targetDate = new Date();
   if (normalized === 'individual') {
     targetDate.setFullYear(targetDate.getFullYear() + 1);
@@ -179,7 +199,7 @@ function getLimitsForPlan(planType) {
       accountExpiresAt: targetDate.toISOString(),
     };
   }
-  if (normalized === 'institucion' || normalized === 'institucional') {
+  if (normalized === 'institucion') {
     targetDate.setMonth(targetDate.getMonth() + 6);
     return {
       maxProfiles: 100,
@@ -189,9 +209,9 @@ function getLimitsForPlan(planType) {
   return { maxProfiles: null, accountExpiresAt: null };
 }
 
-async function acceptInvitation(tokenHash, passwordHash, planType) {
-  const planLimits = getLimitsForPlan(planType);
+async function acceptInvitation(tokenHash, passwordHash) {
   if (supabase) {
+    // El plan y sus límites salen de la invitación, dentro de la misma transacción SQL.
     const { data, error } = await supabase.rpc('accept_user_invitation', {
       target_token_hash: tokenHash,
       target_password_hash: passwordHash,
@@ -202,12 +222,7 @@ async function acceptInvitation(tokenHash, passwordHash, planType) {
         throw new Error('Ese correo ya tiene una cuenta. Solicita ayuda al administrador.');
       }
       if (error.code === 'P0001') throw new Error('La invitación expiró, ya se usó o fue revocada.');
-      throw new Error('No se pudo completar la invitación. Verifica que aplicaste la migración de acceso.');
-    }
-    if (planLimits.maxProfiles !== null || planLimits.accountExpiresAt !== null) {
-      await setUserLimits(data, planLimits).catch(err => {
-        console.error('[Auth DB] Error asignando plan al crear usuario:', err.message);
-      });
+      throw new Error('No se pudo completar la invitación. Verifica que aplicaste supabase_invitation_plans.sql.');
     }
     return findUserById(data);
   }
@@ -222,6 +237,7 @@ async function acceptInvitation(tokenHash, passwordHash, planType) {
     if (localUsers.some(user => user.email === invitation.email)) {
       throw new Error('Ese correo ya tiene una cuenta. Solicita ayuda al administrador.');
     }
+    const planLimits = getLimitsForPlan(invitation.plan_type);
     const user = {
       id: uuidv4(),
       email: invitation.email,
@@ -584,7 +600,7 @@ router.post('/register', (req, res) => {
   });
 });
 
-router.get('/invitation/:token', async (req, res) => {
+router.get('/invitation/:token', invitationLimiter, async (req, res) => {
   const { token } = req.params;
   if (!INVITATION_TOKEN_PATTERN.test(token)) {
     return res.status(400).json({ error: 'El enlace de invitación no es válido.' });
@@ -597,6 +613,7 @@ router.get('/invitation/:token', async (req, res) => {
     res.json({
       email: invitation.email,
       fullName: invitation.full_name,
+      plan: invitation.plan_type ?? null,
       expiresAt: invitation.expires_at,
     });
   } catch (error) {
@@ -605,8 +622,9 @@ router.get('/invitation/:token', async (req, res) => {
   }
 });
 
-router.post('/invitation/accept', async (req, res) => {
-  const { token, password, plan } = req.body || {};
+router.post('/invitation/accept', invitationLimiter, async (req, res) => {
+  // Cualquier `plan` enviado por el cliente se ignora: el plan viene de la invitación.
+  const { token, password } = req.body || {};
   if (typeof token !== 'string' || !INVITATION_TOKEN_PATTERN.test(token)) {
     return res.status(400).json({ error: 'El enlace de invitación no es válido.' });
   }
@@ -615,8 +633,8 @@ router.post('/invitation/accept', async (req, res) => {
   }
   try {
     const passwordHash = await bcrypt.hash(password, BCRYPT_ROUNDS);
-    const user = await acceptInvitation(hashInvitationToken(token), passwordHash, plan);
-    console.log(`[Auth] Invitación aceptada: ${user.email} con plan: ${plan || 'sin plan'}`);
+    const user = await acceptInvitation(hashInvitationToken(token), passwordHash);
+    console.log(`[Auth] Invitación aceptada: ${user.email}`);
     res.status(201).json({
       message: 'Cuenta activada. Ya puedes iniciar sesión.',
       user: publicUser(user),
@@ -636,24 +654,14 @@ router.post('/invitation/accept', async (req, res) => {
   }
 });
 
-router.post('/select-plan', verifyToken, async (req, res) => {
-  const { plan } = req.body || {};
-  const normalized = String(plan || '').trim().toLowerCase();
-  if (!['individual', 'familiar', 'institucion', 'institucional'].includes(normalized)) {
-    return res.status(400).json({ error: 'Debes seleccionar un plan válido: individual, familiar o institucion.' });
-  }
-  const limits = getLimitsForPlan(normalized);
-  try {
-    const user = await setUserLimits(req.user.userId, limits);
-    if (!user) return res.status(404).json({ error: 'Usuario no encontrado.' });
-    res.json({
-      message: 'Plan asignado correctamente a tu cuenta.',
-      user: publicUser(user),
-    });
-  } catch (error) {
-    console.error('[Auth] Error al seleccionar plan:', error);
-    res.status(500).json({ error: error.message || 'No se pudo asignar el plan.' });
-  }
+// Los planes son pagados: solo el administrador los asigna (al invitar o desde
+// PATCH /admin/users/:id/limits). Se mantiene la ruta para responder con un
+// mensaje claro a versiones antiguas del panel.
+router.post('/select-plan', verifyToken, (req, res) => {
+  res.status(403).json({
+    error: 'El plan lo asigna el administrador. Contáctalo para contratar, renovar o cambiar tu plan.',
+    code: 'PLAN_ASSIGNED_BY_ADMIN',
+  });
 });
 
 router.get('/admin/invitations', verifyToken, requireAdmin, async (req, res) => {
@@ -674,6 +682,10 @@ router.post('/admin/invitations', verifyToken, requireAdmin, async (req, res) =>
   if (!fullName || fullName.length > 160) {
     return res.status(400).json({ error: 'Ingresa un nombre de hasta 160 caracteres.' });
   }
+  const planType = normalizePlanType(req.body?.plan);
+  if (!planType) {
+    return res.status(400).json({ error: 'Elige el plan de la cuenta: individual, familiar, institucion o ilimitado.' });
+  }
   try {
     if (await findUserByEmail(email)) {
       return res.status(409).json({ error: 'Ese correo ya tiene una cuenta. Puedes reactivarla desde la administración.' });
@@ -682,6 +694,7 @@ router.post('/admin/invitations', verifyToken, requireAdmin, async (req, res) =>
     const invitation = await createInvitation({
       email,
       fullName,
+      planType,
       tokenHash: hashInvitationToken(token),
       createdBy: req.user.userId,
     });
@@ -736,7 +749,7 @@ router.delete('/admin/invitations/:id', verifyToken, requireAdmin, async (req, r
  * Iniciar sesión y obtener un token JWT.
  * Body: { email, password }
  */
-router.post('/login', async (req, res) => {
+router.post('/login', loginPerIpLimiter, loginPerAccountLimiter, async (req, res) => {
   try {
     const { email, password } = req.body;
 
