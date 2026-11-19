@@ -14,6 +14,7 @@ const {
   loginPerIpLimiter,
   invitationLimiter,
 } = require('./rateLimits');
+const { recordAccess } = require('./accessLog');
 
 const router = express.Router();
 
@@ -952,6 +953,12 @@ router.delete('/admin/users/:id', verifyToken, requireAdmin, async (req, res) =>
   try {
     const deleted = await deleteUserAccount(req.params.id);
     if (!deleted) return res.status(404).json({ error: 'Usuario no encontrado.' });
+    recordAccess({
+      event: 'admin_delete_user',
+      profileOwnerId: req.params.id,
+      actorUserId: req.user.userId,
+      ip: req.ip,
+    });
     res.json({ message: 'Cuenta y perfiles asociados eliminados.' });
   } catch (error) {
     if (error.message.includes('último administrador')) {

@@ -18,7 +18,7 @@ ENV NODE_ENV=production
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev --no-audit --no-fund && npm cache clean --force
 
-COPY --chown=node:node app.js auth.js db.js openapi.js rateLimits.js server.js ./
+COPY --chown=node:node accessLog.js app.js auth.js db.js openapi.js rateLimits.js server.js ./
 COPY --chown=node:node public ./public
 COPY --from=dashboard-build --chown=node:node /usr/src/app/public/js/dashboard.bundle.js ./public/js/dashboard.bundle.js
 

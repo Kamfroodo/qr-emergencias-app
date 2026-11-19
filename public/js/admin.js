@@ -10,6 +10,8 @@ const medicalProfilesTable = document.getElementById('medicalProfilesTable');
 const medicalProfileCount = document.getElementById('medicalProfileCount');
 const medicalProfileDetails = document.getElementById('medicalProfileDetails');
 const profileQrDialog = document.getElementById('profileQrDialog');
+const accessLogsTable = document.getElementById('accessLogsTable');
+const accessLogCount = document.getElementById('accessLogCount');
 let users = [];
 let invitations = [];
 let medicalProfiles = [];
@@ -430,11 +432,69 @@ async function loadUsers() {
       failures.push(results[2].reason.message);
     }
     if (failures.length) showMessage(failures.join(' '));
+    await loadAccessLogs();
   } catch (error) {
     showMessage(error.message);
     showTableError(usersTable, 7, error.message);
     showTableError(invitationsTable, 5, error.message);
     showTableError(medicalProfilesTable, 4, error.message);
+    showTableError(accessLogsTable, 6, error.message);
+  }
+}
+
+const ACCESS_EVENT_LABELS = {
+  public_scan: 'Escaneo del QR',
+  owner_rotate_qr: 'QR regenerado por el titular',
+  admin_view_profile: 'Admin abrió la ficha completa',
+  admin_view_qr: 'Admin vio/descargó el QR',
+  admin_rotate_qr: 'Admin regeneró el QR',
+  admin_delete_profile: 'Admin eliminó la ficha',
+  admin_delete_user: 'Admin eliminó la cuenta',
+};
+const ACCESS_OUTCOME_LABELS = {
+  ok: ['Correcto', 'badge-active'],
+  paused: ['Ficha pausada', 'badge-pending'],
+  account_expired: ['Cuenta vencida', 'badge-suspended'],
+  account_suspended: ['Cuenta suspendida', 'badge-suspended'],
+};
+
+async function loadAccessLogs() {
+  try {
+    renderAccessLogs(await requestJson('/api/admin/access-logs?limit=200'));
+  } catch (error) {
+    showTableError(accessLogsTable, 6, `No se pudo cargar el registro de accesos. ${error.message}`);
+  }
+}
+
+function renderAccessLogs(entries) {
+  accessLogCount.textContent = `${entries.length} eventos recientes · 180 días de historial · de quien escanea solo se guarda una huella de IP`;
+  accessLogsTable.replaceChildren();
+  if (!entries.length) {
+    showTableError(accessLogsTable, 6, 'Todavía no hay accesos registrados.');
+    return;
+  }
+  const profilesById = new Map(medicalProfiles.map(profile => [profile.id, profile]));
+  const usersById = new Map(users.map(user => [user.id, user]));
+  for (const entry of entries) {
+    const row = document.createElement('tr');
+    const profileName = entry.profileId
+      ? (profilesById.get(entry.profileId)?.fullName || 'Ficha eliminada o no disponible')
+      : (entry.profileOwnerId ? `Cuenta ${usersById.get(entry.profileOwnerId)?.email || 'eliminada'}` : '—');
+    const actor = entry.actorUserId
+      ? (usersById.get(entry.actorUserId)?.email || 'Cuenta eliminada')
+      : 'Público (escaneo)';
+    const [outcomeLabel, outcomeBadge] = ACCESS_OUTCOME_LABELS[entry.outcome] || [entry.outcome, 'badge-suspended'];
+    const outcomeCell = element('td');
+    outcomeCell.append(element('span', `badge ${outcomeBadge}`, outcomeLabel));
+    row.append(
+      element('td', '', new Date(entry.createdAt).toLocaleString()),
+      element('td', '', ACCESS_EVENT_LABELS[entry.event] || entry.event),
+      element('td', 'user-name', profileName),
+      outcomeCell,
+      element('td', '', actor),
+      element('td', 'muted', entry.ipHash || '—'),
+    );
+    accessLogsTable.append(row);
   }
 }
 
@@ -644,6 +704,7 @@ invitationForm.addEventListener('submit', event => {
     plan: String(formData.get('plan') || ''),
   });
 });
+document.getElementById('refreshAccessLogsBtn').addEventListener('click', loadAccessLogs);
 document.getElementById('logoutButton').addEventListener('click', () => {
   if (window.confirm('¿Cerrar sesión?')) Auth.logout();
 });

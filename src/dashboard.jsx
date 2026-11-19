@@ -62,6 +62,7 @@ function Dashboard() {
   const [toast, setToast] = useState(null);
   const [currentUser, setCurrentUser] = useState(() => Auth.getUser());
   const [showPlanModal, setShowPlanModal] = useState(false);
+  const [accessLog, setAccessLog] = useState(null);
 
   async function loadProfiles() {
     setLoading(true);
@@ -310,6 +311,18 @@ function Dashboard() {
     }
   }
 
+  async function openAccessLog(profile) {
+    setAccessLog({ profile, entries: null, error: '' });
+    try {
+      const response = await Auth.fetch(`/api/profiles/${encodeURIComponent(profile.id)}/access-logs`);
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || 'No se pudo cargar el registro de escaneos.');
+      setAccessLog({ profile, entries: result, error: '' });
+    } catch (error) {
+      setAccessLog({ profile, entries: [], error: error.message });
+    }
+  }
+
   async function deleteProfile(profile) {
     if (!window.confirm(`¿Eliminar permanentemente la ficha de "${profile.fullName}"? Esta acción invalidará su código QR.`)) return;
     try {
@@ -371,6 +384,7 @@ function Dashboard() {
               onDelete={() => deleteProfile(profile)}
               onToggle={() => toggleStatus(profile)}
               onRotate={() => rotateQr(profile)}
+              onAccessLog={() => openAccessLog(profile)}
             />
           ))}
         </section>
@@ -394,6 +408,15 @@ function Dashboard() {
           onClose={() => setShowPlanModal(false)}
         />
       )}
+      {accessLog && (
+        <AccessLogModal
+          profile={accessLog.profile}
+          entries={accessLog.entries}
+          error={accessLog.error}
+          onRotate={() => { setAccessLog(null); rotateQr(accessLog.profile); }}
+          onClose={() => setAccessLog(null)}
+        />
+      )}
       {toast && <div className={`profile-toast ${toast.type}`} role="status">{toast.message}</div>}
     </>
   );
@@ -403,7 +426,7 @@ function Stat({ icon, value, label }) {
   return <article className="stat-card"><div className="stat-icon red">{icon}</div><div className="stat-info"><div className="stat-value">{value}</div><div className="stat-label">{label}</div></div></article>;
 }
 
-function ProfileCard({ profile, onEdit, onDelete, onToggle, onRotate }) {
+function ProfileCard({ profile, onEdit, onDelete, onToggle, onRotate, onAccessLog }) {
   const [photoError, setPhotoError] = useState(false);
   const initials = (profile.fullName || 'EM').split(/\s+/).map(part => part[0]).slice(0, 2).join('').toUpperCase();
   const emergencyUrl = `/emergency.html?token=${encodeURIComponent(profile.public_token || profile.id)}`;
@@ -430,6 +453,7 @@ function ProfileCard({ profile, onEdit, onDelete, onToggle, onRotate }) {
       <div className="profile-actions">
         <a className="btn btn-secondary btn-sm" href={emergencyUrl} target="_blank" rel="noreferrer">Ver ficha</a>
         <button className="btn btn-secondary btn-sm" onClick={onToggle} title={active ? 'Pausar QR' : 'Activar QR'} aria-label={active ? 'Pausar código QR' : 'Activar código QR'}>{active ? 'Ⅱ' : '▶'}</button>
+        <button className="btn btn-secondary btn-sm" onClick={onAccessLog} title="Últimos escaneos del QR" aria-label={`Ver últimos escaneos del QR de ${profile.fullName}`}>🕒</button>
         <button className="btn btn-secondary btn-sm" onClick={onRotate} title="Regenerar QR (invalida el actual)" aria-label={`Regenerar código QR de ${profile.fullName}`}>↻</button>
         <button className="btn btn-secondary btn-sm" onClick={onEdit} aria-label={`Editar ${profile.fullName}`}>✎</button>
         <button className="btn btn-outline-danger btn-sm" onClick={onDelete} aria-label={`Eliminar ${profile.fullName}`}>⌫</button>
@@ -530,6 +554,56 @@ function Field({ label, name, value, onChange, type = 'text', placeholder, requi
       {textarea ? <textarea id={`field-${name}`} name={name} className="form-control" value={value} onChange={onChange} placeholder={placeholder} rows={3} /> : select ? (
         <select id={`field-${name}`} name={name} className="form-control" value={value} onChange={onChange} required={required}>{options.map(option => <option key={option} value={option}>{option}</option>)}</select>
       ) : <input id={`field-${name}`} name={name} type={type} className="form-control" value={value ?? ''} onChange={onChange} placeholder={placeholder} required={required} min={min} max={max} readOnly={readOnly} />}
+    </div>
+  );
+}
+
+const ACCESS_EVENT_LABELS = {
+  public_scan: {
+    ok: ['Escaneo del QR', 'Se mostró la ficha'],
+    paused: ['Escaneo del QR', 'Ficha pausada: no se mostró'],
+    account_expired: ['Escaneo del QR', 'Cuenta vencida: no se mostró'],
+    account_suspended: ['Escaneo del QR', 'Cuenta suspendida: no se mostró'],
+  },
+  owner_rotate_qr: { ok: ['QR regenerado', 'Por ti'] },
+  admin_rotate_qr: { ok: ['QR regenerado', 'Por el administrador'] },
+};
+
+// Últimos escaneos de una ficha: sin datos de quien escaneó.
+function AccessLogModal({ profile, entries, error, onRotate, onClose }) {
+  return (
+    <div className="modal-overlay profile-overlay" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}>
+      <section className="modal-content profile-modal" role="dialog" aria-modal="true" aria-labelledby="access-log-title" style={{ maxWidth: '560px' }}>
+        <header className="modal-header">
+          <h2 className="modal-title" id="access-log-title">Últimos escaneos · {profile.fullName}</h2>
+          <button className="btn-close" type="button" onClick={onClose} aria-label="Cerrar">×</button>
+        </header>
+        <div className="modal-body" style={{ padding: '1.25rem' }}>
+          <p style={{ color: '#94a3b8', fontSize: '0.85rem', marginBottom: '1rem' }}>
+            Cada vez que alguien escanea el QR queda registrado aquí durante 180 días. Si ves escaneos que no esperabas, regenera el QR para invalidar el actual.
+          </p>
+          {entries === null && <p role="status">Cargando…</p>}
+          {error && <p role="alert" style={{ color: '#ef233c' }}>{error}</p>}
+          {entries && !error && entries.length === 0 && <p>Todavía no hay escaneos registrados.</p>}
+          {entries && entries.length > 0 && (
+            <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'grid', gap: '0.5rem' }}>
+              {entries.map((entry, index) => {
+                const [title, detail] = ACCESS_EVENT_LABELS[entry.event]?.[entry.outcome] || [entry.event, entry.outcome];
+                return (
+                  <li key={`${entry.createdAt}-${index}`} style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', padding: '0.6rem 0.8rem', borderRadius: '10px', background: '#0d1729', border: '1px solid #1e2c47' }}>
+                    <span><strong>{title}</strong><br /><span style={{ color: '#94a3b8', fontSize: '0.8rem' }}>{detail}</span></span>
+                    <time dateTime={entry.createdAt} style={{ color: '#94a3b8', fontSize: '0.8rem', whiteSpace: 'nowrap' }}>{new Date(entry.createdAt).toLocaleString()}</time>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
+        <footer className="modal-footer" style={{ justifyContent: 'space-between' }}>
+          <button type="button" className="btn btn-outline-danger" onClick={onRotate}>↻ Regenerar QR</button>
+          <button type="button" className="btn btn-primary" onClick={onClose}>Cerrar</button>
+        </footer>
+      </section>
     </div>
   );
 }

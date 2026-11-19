@@ -90,6 +90,19 @@ const openApiSpec = {
         },
         description: 'El plan no se envía: lo fija el administrador al crear la invitación.',
       },
+      AccessLogEntry: {
+        type: 'object',
+        properties: {
+          id: { type: 'integer' },
+          createdAt: { type: 'string', format: 'date-time' },
+          event: { type: 'string', enum: ['public_scan', 'owner_rotate_qr', 'admin_view_profile', 'admin_view_qr', 'admin_rotate_qr', 'admin_delete_profile', 'admin_delete_user'] },
+          outcome: { type: 'string', enum: ['ok', 'paused', 'account_expired', 'account_suspended'] },
+          profileId: { type: 'string', format: 'uuid', nullable: true },
+          profileOwnerId: { type: 'string', format: 'uuid', nullable: true },
+          actorUserId: { type: 'string', format: 'uuid', nullable: true, description: 'null en escaneos públicos' },
+          ipHash: { type: 'string', nullable: true, description: 'Huella HMAC de la IP (16 hex). Nunca la IP real.' },
+        },
+      },
       RotatedToken: {
         type: 'object',
         properties: {
@@ -488,6 +501,42 @@ const openApiSpec = {
         parameters: pathId,
         responses: {
           ...responses([[200, 'Token público nuevo', ref('RotatedToken')], [401, 'Sesión inválida'], [403, 'Se requieren privilegios de administrador'], [404, 'Ficha no encontrada']]),
+        },
+      },
+    },
+    '/api/admin/access-logs': {
+      get: {
+        tags: ['Administration'],
+        summary: 'Registro de accesos de los últimos 180 días (solo administradores)',
+        security: bearer,
+        parameters: [
+          { name: 'profileId', in: 'query', required: false, schema: { type: 'string', format: 'uuid' } },
+          { name: 'ownerId', in: 'query', required: false, schema: { type: 'string', format: 'uuid' } },
+          { name: 'limit', in: 'query', required: false, schema: { type: 'integer', minimum: 1, maximum: 500, default: 200 } },
+        ],
+        responses: {
+          ...responses([[200, 'Eventos, del más reciente al más antiguo', { type: 'array', items: ref('AccessLogEntry') }], [400, 'Filtro no válido'], [401, 'Sesión inválida'], [403, 'Se requieren privilegios de administrador']]),
+        },
+      },
+    },
+    '/api/profiles/{id}/access-logs': {
+      get: {
+        tags: ['Profiles'],
+        summary: 'Últimos escaneos y regeneraciones del QR de una ficha propia (sin datos de quien escaneó)',
+        security: bearer,
+        parameters: pathId,
+        responses: {
+          ...responses([[200, 'Eventos', {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                createdAt: { type: 'string', format: 'date-time' },
+                event: { type: 'string', enum: ['public_scan', 'owner_rotate_qr', 'admin_rotate_qr'] },
+                outcome: { type: 'string', enum: ['ok', 'paused', 'account_expired', 'account_suspended'] },
+              },
+            },
+          }], [401, 'Token ausente o inválido'], [404, 'Ficha no encontrada']]),
         },
       },
     },

@@ -16,6 +16,7 @@ const openApiSpec = require('./openapi');
 const { router: authRouter, verifyToken, isUserAccountValid } = require('./auth');
 
 const { emergencyLimiter } = require('./rateLimits');
+const { recordAccess, listAccessLogs, OWNER_VISIBLE_EVENTS } = require('./accessLog');
 
 const app = express();
 
@@ -182,8 +183,19 @@ app.get('/api/v1/emergency/:publicToken', emergencyLimiter, async (req, res) => 
       return res.status(404).json({ error: 'Perfil de emergencia no encontrado.' });
     }
 
+    // Registro del escaneo (sin esperar: nunca debe demorar la ficha de emergencia).
+    const ownerUserId = profile.userId || profile.user_id;
+    const logScan = outcome => recordAccess({
+      event: 'public_scan',
+      outcome,
+      profileId: profile.id,
+      profileOwnerId: ownerUserId,
+      ip: req.ip,
+    });
+
     // Verificar si la tarjeta QR fue pausada o desactivada por el titular
     if (profile.is_active === false) {
+      logScan('paused');
       return res.status(403).json({
         error: 'Perfil no disponible o desactivado temporalmente.',
         code: 'PROFILE_PAUSED',
@@ -193,10 +205,10 @@ app.get('/api/v1/emergency/:publicToken', emergencyLimiter, async (req, res) => 
     }
 
     // Verificar si la cuenta asociada al perfil está vencida o suspendida
-    const ownerUserId = profile.userId || profile.user_id;
     if (typeof isUserAccountValid === 'function' && ownerUserId) {
       const accountStatus = await isUserAccountValid(ownerUserId);
       if (!accountStatus.valid) {
+        logScan(accountStatus.reason === 'ACCOUNT_EXPIRED' ? 'account_expired' : 'account_suspended');
         return res.status(403).json({
           error: accountStatus.message,
           code: accountStatus.reason,
@@ -218,6 +230,7 @@ app.get('/api/v1/emergency/:publicToken', emergencyLimiter, async (req, res) => 
     };
     // URL firmada que vence: solo se entrega si la ficha está activa (comprobado arriba).
     const photoUrl = await db.resolvePhotoUrl(profile.photoUrl);
+    logScan('ok');
     res.json({
       public_token: profile.public_token,
       is_active: profile.is_active !== false,
@@ -298,10 +311,22 @@ app.get('/api/admin/profiles', verifyToken, requireAdmin, async (req, res) => {
   }
 });
 
+// Registra una acción hecha con sesión (titular o admin) sobre una ficha.
+function logProfileAction(req, event, profile) {
+  recordAccess({
+    event,
+    profileId: profile.id,
+    profileOwnerId: profile.user_id || profile.userId || null,
+    actorUserId: req.user.userId,
+    ip: req.ip,
+  });
+}
+
 app.get('/api/admin/profiles/:id', verifyToken, requireAdmin, async (req, res) => {
   try {
     const profile = await db.getProfileByIdOrToken(req.params.id);
     if (!profile) return res.status(404).json({ error: 'Ficha médica no encontrada.' });
+    logProfileAction(req, 'admin_view_profile', profile);
     res.json(await db.withPhotoUrl(profile));
   } catch (error) {
     console.error('Error al consultar ficha para administración:', error);
@@ -314,8 +339,10 @@ app.delete('/api/admin/profiles/:id', verifyToken, requireAdmin, async (req, res
     return res.status(400).json({ error: 'El identificador de la ficha no es válido.' });
   }
   try {
-    const deleted = await db.deleteProfile(req.params.id);
+    const profile = await db.getProfileByIdOrToken(req.params.id);
+    const deleted = profile && await db.deleteProfile(profile.id);
     if (!deleted) return res.status(404).json({ error: 'Ficha médica no encontrada.' });
+    logProfileAction(req, 'admin_delete_profile', profile);
     res.json({ message: 'Ficha médica eliminada correctamente.', id: req.params.id });
   } catch (error) {
     console.error('Error al eliminar ficha desde administración:', error);
@@ -505,7 +532,9 @@ function sendRotatedToken(res, updated) {
 
 app.post('/api/profiles/:id/rotate-token', verifyToken, async (req, res) => {
   try {
-    sendRotatedToken(res, await db.rotatePublicToken(req.params.id, req.user.userId));
+    const updated = await db.rotatePublicToken(req.params.id, req.user.userId);
+    if (updated) logProfileAction(req, 'owner_rotate_qr', updated);
+    sendRotatedToken(res, updated);
   } catch (error) {
     console.error('Error al regenerar QR:', error);
     res.status(500).json({ error: 'No se pudo regenerar el código QR.' });
@@ -514,7 +543,9 @@ app.post('/api/profiles/:id/rotate-token', verifyToken, async (req, res) => {
 
 app.post('/api/admin/profiles/:id/rotate-token', verifyToken, requireAdmin, async (req, res) => {
   try {
-    sendRotatedToken(res, await db.rotatePublicToken(req.params.id));
+    const updated = await db.rotatePublicToken(req.params.id);
+    if (updated) logProfileAction(req, 'admin_rotate_qr', updated);
+    sendRotatedToken(res, updated);
   } catch (error) {
     console.error('Error al regenerar QR desde administración:', error);
     res.status(500).json({ error: 'No se pudo regenerar el código QR.' });
@@ -707,6 +738,7 @@ app.get('/api/profiles/:id/qr', verifyToken, async (req, res) => {
     const { id } = req.params;
     const profile = await db.getProfileByIdOrToken(id, req.user.userId);
     if (!profile) return res.status(404).json({ error: 'Perfil no encontrado para generar código QR' });
+    logProfileAction(req, 'admin_view_qr', profile);
     await sendProfileQr(req, res, profile, id);
   } catch (error) {
     console.error('Error al generar código QR:', error);
@@ -744,10 +776,44 @@ app.get('/api/admin/profiles/:id/qr', verifyToken, requireAdmin, async (req, res
   try {
     const profile = await db.getProfileByIdOrToken(req.params.id);
     if (!profile) return res.status(404).json({ error: 'Ficha no encontrada para generar código QR.' });
+    logProfileAction(req, 'admin_view_qr', profile);
     await sendProfileQr(req, res, profile, req.params.id);
   } catch (error) {
     console.error('Error al generar QR de administración:', error);
     if (!res.headersSent) res.status(500).json({ error: 'Error generando código QR.' });
+  }
+});
+
+// 9. Registro de accesos
+// Titular: escaneos y regeneraciones de QR de una ficha propia (sin huella de IP ni actor).
+app.get('/api/profiles/:id/access-logs', verifyToken, async (req, res) => {
+  try {
+    const profile = await db.getProfileByIdOrToken(req.params.id, req.user.userId);
+    if (!profile) return res.status(404).json({ error: 'Perfil no encontrado.' });
+    const entries = await listAccessLogs({
+      profileId: profile.id,
+      events: OWNER_VISIBLE_EVENTS,
+      limit: req.query.limit,
+    });
+    res.json(entries.map(({ createdAt, event, outcome }) => ({ createdAt, event, outcome })));
+  } catch (error) {
+    console.error('Error al consultar el registro de accesos:', error);
+    res.status(500).json({ error: 'No se pudo cargar el registro de accesos.' });
+  }
+});
+
+// Admin: registro completo, opcionalmente de una ficha o de las fichas de una cuenta.
+app.get('/api/admin/access-logs', verifyToken, requireAdmin, async (req, res) => {
+  const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  const { profileId, ownerId } = req.query;
+  if ((profileId && !uuid.test(profileId)) || (ownerId && !uuid.test(ownerId))) {
+    return res.status(400).json({ error: 'Filtro no válido.' });
+  }
+  try {
+    res.json(await listAccessLogs({ profileId, profileOwnerId: ownerId, limit: req.query.limit ?? 200 }));
+  } catch (error) {
+    console.error('Error al consultar el registro de accesos (admin):', error);
+    res.status(500).json({ error: 'No se pudo cargar el registro de accesos.' });
   }
 });
 

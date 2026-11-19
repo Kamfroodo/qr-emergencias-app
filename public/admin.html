@@ -106,6 +106,35 @@
       <section id="medicalProfileDetails" class="profile-details" hidden aria-live="polite"></section>
     </section>
 
+    <section class="user-panel" aria-labelledby="access-logs-title">
+      <div class="panel-toolbar">
+        <div>
+          <h2 id="access-logs-title">Registro de accesos</h2>
+          <p id="accessLogCount" class="user-count">Escaneos de QR y acciones sobre fichas de los últimos 180 días. De quien escanea solo se guarda una huella de IP, no la IP.</p>
+        </div>
+        <div class="header-actions">
+          <button id="refreshAccessLogsBtn" class="button button-secondary" type="button">Actualizar</button>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Fecha</th>
+              <th>Evento</th>
+              <th>Ficha</th>
+              <th>Resultado</th>
+              <th>Hecho por</th>
+              <th>Huella IP</th>
+            </tr>
+          </thead>
+          <tbody id="accessLogsTable">
+            <tr><td class="empty-state" colspan="6">Cargando registro…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
     <section class="user-panel" aria-labelledby="users-title">
       <div class="panel-toolbar">
         <div>
@@ -155,6 +184,6 @@
   </dialog>
 
   <script src="/js/auth.js"></script>
-  <script src="/js/admin.js?v=20261118c"></script>
+  <script src="/js/admin.js?v=20261118d"></script>
 </body>
 </html>
