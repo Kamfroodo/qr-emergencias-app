@@ -136,7 +136,7 @@ Completa `.env` con la configuración apropiada para tu entorno:
 | `BASE_URL` | URL local, por ejemplo `http://localhost:3000` | Dominio público con HTTPS, por ejemplo `https://emergencias.tudominio.cl` |
 | `SUPABASE_URL` | URL del proyecto Supabase o vacío para modo local | URL real del proyecto |
 | `SUPABASE_SERVICE_ROLE_KEY` | Puede quedar vacía si no usas Supabase | Clave de servidor secreta de Supabase |
-| `SUPABASE_PHOTO_BUCKET` | `medical-photos` | Nombre del bucket público de fotos en Supabase Storage |
+| `SUPABASE_PHOTO_BUCKET` | `medical-photos` | Nombre del bucket **privado** de fotos en Supabase Storage |
 | `JWT_SECRET` | Secreto local; no lo compartas | Secreto aleatorio de al menos 32 bytes |
 | `JWT_EXPIRES_IN` | `24h` | Duración de sesión deseada, por ejemplo `24h` |
 
@@ -174,7 +174,7 @@ Las fichas están asociadas a la cuenta que las creó. Las rutas privadas requie
 
 1. Crea un proyecto de Supabase.
 2. Ejecuta el contenido de `supabase_schema.sql` en el SQL Editor del proyecto.
-3. En **Storage**, crea un bucket público llamado `medical-photos` (o configura `SUPABASE_PHOTO_BUCKET` con el nombre elegido). El bucket debe aceptar JPG, PNG y WebP de hasta 5 MB. Las fotos podrán verse públicamente desde la ficha QR, igual que los otros datos de emergencia; no subas imágenes que no deban ser públicas.
+3. En **Storage**, crea un bucket **privado** (sin marcar "Public bucket") llamado `medical-photos` (o configura `SUPABASE_PHOTO_BUCKET` con el nombre elegido). El bucket debe aceptar JPG, PNG y WebP de hasta 5 MB. La app guarda solo la ruta de cada foto y la entrega con URL firmadas que vencen en 1 hora, solo mientras la ficha esté activa; al eliminar una ficha o cuenta, su foto también se borra.
 4. Si ya tienes una cuenta, consérvala: las cuentas existentes siguen funcionando. Si necesitas convertir una cuenta existente en administradora, verifica cuidadosamente el correo y ejecuta una sola vez:
 
    ```sql
@@ -283,7 +283,7 @@ El repositorio incluye `render.yaml` para crear un servicio web desde Docker. El
 3. Al configurar el Blueprint, completa los valores solicitados:
    - `SUPABASE_URL`: URL del proyecto Supabase.
    - `SUPABASE_SERVICE_ROLE_KEY`: clave secreta de servidor de ese proyecto.
-   - `SUPABASE_PHOTO_BUCKET`: nombre del bucket público de fotos, por defecto `medical-photos`.
+   - `SUPABASE_PHOTO_BUCKET`: nombre del bucket privado de fotos, por defecto `medical-photos`.
    - `BASE_URL`: URL HTTPS que Render asigna al servicio, por ejemplo `https://qr-emergencias-app.onrender.com`.
    - `JWT_SECRET`: Render lo genera automáticamente desde `render.yaml`.
 

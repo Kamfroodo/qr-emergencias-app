@@ -196,13 +196,15 @@ app.get('/api/v1/emergency/:publicToken', emergencyLimiter, async (req, res) => 
       emergencyLine: insurance.emergencyLine || '',
       policyNumber: maskIdentifier(insurance.policyNumber, 4),
     };
+    // URL firmada que vence: solo se entrega si la ficha está activa (comprobado arriba).
+    const photoUrl = await db.resolvePhotoUrl(profile.photoUrl);
     res.json({
       public_token: profile.public_token,
       is_active: profile.is_active !== false,
       profile_name: profile.fullName,
       fullName: profile.fullName,
-      photo_url: profile.photoUrl || '',
-      photoUrl: profile.photoUrl || '',
+      photo_url: photoUrl,
+      photoUrl,
       birth_date: profile.birthDate || '',
       birthDate: profile.birthDate || '',
       age: profile.age,
@@ -280,7 +282,7 @@ app.get('/api/admin/profiles/:id', verifyToken, requireAdmin, async (req, res) =
   try {
     const profile = await db.getProfileByIdOrToken(req.params.id);
     if (!profile) return res.status(404).json({ error: 'Ficha médica no encontrada.' });
-    res.json(profile);
+    res.json(await db.withPhotoUrl(profile));
   } catch (error) {
     console.error('Error al consultar ficha para administración:', error);
     res.status(500).json({ error: 'No se pudo consultar la ficha médica.' });
@@ -314,7 +316,7 @@ app.get('/api/profiles/:id', verifyToken, async (req, res) => {
       });
     }
 
-    res.json(profile);
+    res.json(await db.withPhotoUrl(profile));
   } catch (error) {
     console.error('Error al obtener perfil:', error);
     res.status(500).json({ error: 'Error al obtener el perfil.' });
@@ -397,7 +399,8 @@ const createProfileHandlerLocked = async (req, res) => {
       nationalId: (body.nationalId || body.national_id || '').trim(),
       bloodType,
       organDonor: Boolean(body.organDonor || body.organ_donor),
-      photoUrl: body.photoUrl || body.photo_url || '',
+      // La foto solo se asigna subiendo una imagen (POST /api/profiles/:id/photo).
+      photoUrl: '',
       primaryContact: {
         name: primaryContact.name || '',
         relationship: primaryContact.relationship || '',
@@ -513,9 +516,12 @@ app.put('/api/profiles/:id', verifyToken, async (req, res) => {
       return res.status(404).json({ error: 'Perfil de emergencia no encontrado para actualizar.' });
     }
 
+    // photoUrl no es editable: la foto solo cambia subiendo una imagen. Así nadie
+    // puede apuntar la ficha pública a una URL externa (rastrear a quien escanea)
+    // ni guardar por error una URL firmada que vence.
     const editableFields = [
       'fullName', 'birthDate', 'age', 'nationalId', 'bloodType', 'organDonor',
-      'photoUrl', 'primaryContact', 'secondaryContact', 'allergies', 'conditions',
+      'primaryContact', 'secondaryContact', 'allergies', 'conditions',
       'medications', 'insurance', 'preferredHospital', 'medicalNotes',
     ];
     const updates = Object.fromEntries(
@@ -527,7 +533,6 @@ app.put('/api/profiles/:id', verifyToken, async (req, res) => {
       national_id: 'nationalId',
       blood_type: 'bloodType',
       organ_donor: 'organDonor',
-      photo_url: 'photoUrl',
       critical_conditions: 'conditions',
       preferred_hospital: 'preferredHospital',
       medical_notes: 'medicalNotes',
@@ -601,7 +606,7 @@ app.put('/api/profiles/:id', verifyToken, async (req, res) => {
       return res.status(404).json({ error: 'Perfil de emergencia no encontrado para actualizar.' });
     }
 
-    res.json(updated);
+    res.json(await db.withPhotoUrl(updated));
   } catch (error) {
     console.error('Error al actualizar perfil:', error);
     res.status(500).json({ error: error.message });
@@ -647,7 +652,7 @@ app.post('/api/profiles/:id/photo', verifyToken, (req, res, next) => {
     if (!updated) {
       return res.status(404).json({ error: 'Perfil médico no encontrado para esta cuenta.' });
     }
-    res.json(updated);
+    res.json(await db.withPhotoUrl(updated));
   } catch (error) {
     console.error('Error al guardar foto del perfil:', error);
     res.status(500).json({ error: error.message || 'No se pudo guardar la foto del perfil.' });

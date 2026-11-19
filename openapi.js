@@ -20,7 +20,7 @@ const profileProperties = {
   nationalId: { type: 'string' },
   bloodType: { type: 'string', enum: ['O+', 'O-', 'A+', 'A-', 'B+', 'B-', 'AB+', 'AB-'] },
   organDonor: { type: 'boolean' },
-  photoUrl: { type: 'string', format: 'uri', nullable: true },
+  photoUrl: { type: 'string', format: 'uri', nullable: true, readOnly: true, description: 'URL firmada temporal (vence en 1 hora). Solo lectura: la foto se cambia con POST /api/profiles/{id}/photo.' },
   primaryContact: ref('Contact'),
   secondaryContact: ref('Contact'),
   allergies: { type: 'array', items: { type: 'string' } },

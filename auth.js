@@ -495,6 +495,9 @@ async function setUserRole(id, role) {
 
 async function deleteUserAccount(id) {
   if (supabase) {
+    const db = require('./db');
+    // La función SQL borra las fichas, pero no las fotos del Storage: se anotan antes.
+    const profileIds = (await db.getAllProfiles(id)).map(profile => profile.id);
     const { data, error } = await supabase.rpc('admin_delete_user', {
       target_user_id: id
     });
@@ -503,6 +506,7 @@ async function deleteUserAccount(id) {
       if (error.code === 'P0001') throw new Error('No puedes eliminar al último administrador activo.');
       throw new Error('No se pudo eliminar la cuenta.');
     }
+    if (data === true) await db.removeProfilePhotos(profileIds);
     return data === true;
   }
 

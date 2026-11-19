@@ -350,7 +350,7 @@ async function loadMedicalProfile(profileId) {
       ['Grupo sanguíneo', profile.bloodType],
       ['Donante de órganos', profile.organDonor ? 'Sí' : 'No'],
       ['Estado del QR', profile.is_active === false ? 'Pausado' : 'Activo'],
-      ['Foto', profile.photoUrl],
+      ['Foto', profile.photoUrl ? 'Registrada' : 'Sin foto'],
     ]);
     const formatContact = contact => contact
       ? [['Nombre', contact.name], ['Parentesco', contact.relationship], ['Teléfono', contact.phone], ['WhatsApp', contact.whatsapp]]

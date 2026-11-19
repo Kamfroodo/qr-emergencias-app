@@ -28,6 +28,59 @@ if (supabaseUrl && supabaseKey && !supabaseKey.includes('tu_supabase')) {
 
 let localProfiles = [];
 
+// ==========================================
+// FOTOS DE PERFIL (bucket privado + URL firmadas)
+// ==========================================
+// photo_url guarda solo la ruta dentro del bucket. Quien tiene derecho a ver la
+// ficha recibe una URL firmada que vence; así la foto deja de verse al pausar,
+// vencer o eliminar la ficha, y nunca se cargan URL externas arbitrarias.
+const PHOTO_URL_TTL_SECONDS = 60 * 60;
+
+function profilePhotoPath(profileId) {
+  return `${profileId}/profile-photo`;
+}
+
+// Acepta la ruta nueva o las URL públicas/firmadas antiguas del mismo bucket.
+function photoStoragePath(stored) {
+  if (typeof stored !== 'string' || !stored) return null;
+  const storageUrl = stored.match(/\/storage\/v1\/object\/(?:public|sign)\/([^/?#]+)\/([^?#]+)/);
+  if (storageUrl) {
+    if (storageUrl[1] !== profilePhotoBucket) return null;
+    const path = decodeURIComponent(storageUrl[2]);
+    return /^[0-9a-f-]{36}\/profile-photo$/i.test(path) ? path : null;
+  }
+  return /^[0-9a-f-]{36}\/profile-photo$/i.test(stored) ? stored : null;
+}
+
+async function resolvePhotoUrl(stored) {
+  if (typeof stored !== 'string' || !stored) return '';
+  if (!supabase) return stored.startsWith('data:image/') ? stored : '';
+  const path = photoStoragePath(stored);
+  if (!path) return '';
+  const { data, error } = await supabase.storage
+    .from(profilePhotoBucket)
+    .createSignedUrl(path, PHOTO_URL_TTL_SECONDS);
+  if (error || !data?.signedUrl) {
+    console.error('[DB Error] resolvePhotoUrl:', error?.message || 'sin URL firmada');
+    return '';
+  }
+  return data.signedUrl;
+}
+
+// Copia del perfil con la foto lista para mostrar (URL firmada o vacía).
+async function withPhotoUrl(profile) {
+  if (!profile) return profile;
+  return { ...profile, photoUrl: await resolvePhotoUrl(profile.photoUrl) };
+}
+
+async function removeProfilePhotos(profileIds) {
+  if (!supabase || !Array.isArray(profileIds) || !profileIds.length) return;
+  const { error } = await supabase.storage
+    .from(profilePhotoBucket)
+    .remove(profileIds.map(profilePhotoPath));
+  if (error) console.error('[DB Error] removeProfilePhotos:', error.message);
+}
+
 // Helper para mapear columnas de base de datos SQL a camelCase de JavaScript
 function mapFromDb(row) {
   if (!row) return null;
@@ -279,9 +332,8 @@ async function saveProfilePhoto(id, userId, file, contentType) {
 
   let photoUrl;
   if (supabase) {
-    const storagePath = `${existing.id}/profile-photo`;
-    const storage = supabase.storage.from(profilePhotoBucket);
-    const { error } = await storage.upload(storagePath, file, {
+    const storagePath = profilePhotoPath(existing.id);
+    const { error } = await supabase.storage.from(profilePhotoBucket).upload(storagePath, file, {
       cacheControl: '0',
       contentType,
       upsert: true,
@@ -289,10 +341,11 @@ async function saveProfilePhoto(id, userId, file, contentType) {
 
     if (error) {
       console.error('[DB Error] saveProfilePhoto:', error.message);
-      throw new Error(`No se pudo guardar la foto. Verifica el bucket público "${profilePhotoBucket}" en Supabase Storage.`);
+      throw new Error(`No se pudo guardar la foto. Verifica el bucket "${profilePhotoBucket}" en Supabase Storage.`);
     }
 
-    photoUrl = `${storage.getPublicUrl(storagePath).data.publicUrl}?v=${Date.now()}`;
+    // Se guarda la ruta, no una URL pública: la URL firmada se genera al mostrarla.
+    photoUrl = storagePath;
   } else {
     photoUrl = `data:${contentType};base64,${file.toString('base64')}`;
   }
@@ -313,6 +366,7 @@ async function deleteProfile(id, userId) {
       console.error('[DB Error] deleteProfile:', error.message);
       throw new Error('Error al eliminar en Supabase: ' + error.message);
     }
+    await removeProfilePhotos(data.map(row => row.id));
     return data.length > 0;
   }
 
@@ -323,14 +377,16 @@ async function deleteProfile(id, userId) {
 
 async function deleteProfilesForUser(userId) {
   if (supabase) {
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from('profiles')
       .delete()
-      .eq('user_id', userId);
+      .eq('user_id', userId)
+      .select('id');
     if (error) {
       console.error('[DB Error] deleteProfilesForUser:', error.message);
       throw new Error('No se pudieron eliminar los perfiles asociados al usuario.');
     }
+    await removeProfilePhotos((data || []).map(row => row.id));
     return;
   }
   localProfiles = localProfiles.filter(profile => profile.user_id !== userId);
@@ -377,5 +433,8 @@ module.exports = {
   deleteProfilesForUser,
   toggleProfileStatus,
   rotatePublicToken,
+  resolvePhotoUrl,
+  withPhotoUrl,
+  removeProfilePhotos,
   isSupabaseConnected
 };
