@@ -293,6 +293,23 @@ function Dashboard() {
     }
   }
 
+  async function rotateQr(profile) {
+    if (!window.confirm(
+      `¿Regenerar el código QR de "${profile.fullName}"?\n\n` +
+      'El QR actual (el sticker impreso y cualquier foto de él) dejará de funcionar de inmediato. ' +
+      'Úsalo si lo perdiste o alguien lo fotografió. Después pide al administrador el QR nuevo para imprimirlo.'
+    )) return;
+    try {
+      const response = await Auth.fetch(`/api/profiles/${encodeURIComponent(profile.id)}/rotate-token`, { method: 'POST' });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || 'No se pudo regenerar el código QR.');
+      notify(result.message);
+      await loadProfiles();
+    } catch (error) {
+      notify(error.message, 'error');
+    }
+  }
+
   async function deleteProfile(profile) {
     if (!window.confirm(`¿Eliminar permanentemente la ficha de "${profile.fullName}"? Esta acción invalidará su código QR.`)) return;
     try {
@@ -353,6 +370,7 @@ function Dashboard() {
               onEdit={() => openEdit(profile.id)}
               onDelete={() => deleteProfile(profile)}
               onToggle={() => toggleStatus(profile)}
+              onRotate={() => rotateQr(profile)}
             />
           ))}
         </section>
@@ -385,7 +403,7 @@ function Stat({ icon, value, label }) {
   return <article className="stat-card"><div className="stat-icon red">{icon}</div><div className="stat-info"><div className="stat-value">{value}</div><div className="stat-label">{label}</div></div></article>;
 }
 
-function ProfileCard({ profile, onEdit, onDelete, onToggle }) {
+function ProfileCard({ profile, onEdit, onDelete, onToggle, onRotate }) {
   const [photoError, setPhotoError] = useState(false);
   const initials = (profile.fullName || 'EM').split(/\s+/).map(part => part[0]).slice(0, 2).join('').toUpperCase();
   const emergencyUrl = `/emergency.html?token=${encodeURIComponent(profile.public_token || profile.id)}`;
@@ -412,6 +430,7 @@ function ProfileCard({ profile, onEdit, onDelete, onToggle }) {
       <div className="profile-actions">
         <a className="btn btn-secondary btn-sm" href={emergencyUrl} target="_blank" rel="noreferrer">Ver ficha</a>
         <button className="btn btn-secondary btn-sm" onClick={onToggle} title={active ? 'Pausar QR' : 'Activar QR'} aria-label={active ? 'Pausar código QR' : 'Activar código QR'}>{active ? 'Ⅱ' : '▶'}</button>
+        <button className="btn btn-secondary btn-sm" onClick={onRotate} title="Regenerar QR (invalida el actual)" aria-label={`Regenerar código QR de ${profile.fullName}`}>↻</button>
         <button className="btn btn-secondary btn-sm" onClick={onEdit} aria-label={`Editar ${profile.fullName}`}>✎</button>
         <button className="btn btn-outline-danger btn-sm" onClick={onDelete} aria-label={`Eliminar ${profile.fullName}`}>⌫</button>
       </div>

@@ -300,10 +300,14 @@ function renderMedicalProfiles() {
     const qrButton = element('button', 'button button-primary', 'Código QR');
     qrButton.type = 'button';
     qrButton.addEventListener('click', () => showProfileQr(profile));
+    const rotateButton = element('button', 'button button-secondary', 'Regenerar QR');
+    rotateButton.type = 'button';
+    rotateButton.title = 'Invalida el QR actual y crea uno nuevo';
+    rotateButton.addEventListener('click', () => rotateMedicalProfileQr(profile));
     const deleteButton = element('button', 'button button-danger', 'Eliminar');
     deleteButton.type = 'button';
     deleteButton.addEventListener('click', () => deleteMedicalProfile(profile));
-    actionGroup.append(viewButton, qrButton, deleteButton);
+    actionGroup.append(viewButton, qrButton, rotateButton, deleteButton);
     actions.append(actionGroup);
     row.append(actions);
     medicalProfilesTable.append(row);
@@ -559,6 +563,17 @@ async function changeStatus(user) {
     users = users.map(entry => entry.id === updated.id ? updated : entry);
     renderUsers();
     showMessage(`Cuenta ${isActive ? 'reactivada' : 'suspendida'} correctamente.`, 'success');
+  } catch (error) {
+    showMessage(error.message);
+  }
+}
+
+async function rotateMedicalProfileQr(profile) {
+  if (!window.confirm(`¿Regenerar el código QR de ${profile.fullName || 'este paciente'}? El QR impreso actual dejará de funcionar de inmediato y habrá que entregar el nuevo.`)) return;
+  try {
+    const result = await requestJson(`/api/admin/profiles/${encodeURIComponent(profile.id)}/rotate-token`, { method: 'POST' });
+    showMessage(result.message, 'success');
+    await showProfileQr(profile);
   } catch (error) {
     showMessage(error.message);
   }

@@ -3,6 +3,7 @@
  * Soporta Supabase (PostgreSQL en la nube) con fallback a memoria local.
  */
 
+const { randomUUID } = require('node:crypto');
 const { createClient } = require('@supabase/supabase-js');
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -215,6 +216,10 @@ async function updateProfile(id, profileData, userId) {
 
   if (supabase) {
     const dbRow = mapToDb(updatedProfile);
+    // El token público y el estado se cambian solo con sus propias operaciones;
+    // no se reescriben aquí para que una edición concurrente no restaure un QR revocado.
+    delete dbRow.public_token;
+    delete dbRow.is_active;
 
     let query = supabase
       .from('profiles')
@@ -232,8 +237,40 @@ async function updateProfile(id, profileData, userId) {
 
   const index = localProfiles.findIndex(p => p.id === existing.id);
   if (index === -1 || (userId && localProfiles[index].user_id !== userId)) return null;
-  localProfiles[index] = updatedProfile;
+  localProfiles[index] = {
+    ...updatedProfile,
+    public_token: localProfiles[index].public_token,
+    is_active: localProfiles[index].is_active,
+  };
   return localProfiles[index];
+}
+
+// Asigna un token público nuevo: el QR anterior deja de funcionar de inmediato.
+async function rotatePublicToken(id, userId) {
+  const existing = await getProfileByIdOrToken(id, userId);
+  if (!existing) return null;
+  const newToken = randomUUID();
+
+  if (supabase) {
+    let query = supabase
+      .from('profiles')
+      .update({ public_token: newToken, updated_at: new Date().toISOString() })
+      .eq('id', existing.id);
+    if (userId) query = query.eq('user_id', userId);
+    const { data, error } = await query.select().maybeSingle();
+
+    if (error) {
+      console.error('[DB Error] rotatePublicToken:', error.message);
+      throw new Error('No se pudo regenerar el código QR.');
+    }
+    return mapFromDb(data);
+  }
+
+  const profile = localProfiles.find(p => p.id === existing.id && (!userId || p.user_id === userId));
+  if (!profile) return null;
+  profile.public_token = newToken;
+  profile.updatedAt = new Date().toISOString();
+  return profile;
 }
 
 async function saveProfilePhoto(id, userId, file, contentType) {
@@ -339,5 +376,6 @@ module.exports = {
   deleteProfile,
   deleteProfilesForUser,
   toggleProfileStatus,
+  rotatePublicToken,
   isSupabaseConnected
 };

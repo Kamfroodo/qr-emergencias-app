@@ -94,6 +94,23 @@ async function withProfileCreationLock(userId, action) {
   }
 }
 
+// Enmascara un identificador dejando visibles solo sus últimos `visible` caracteres
+// alfanuméricos (p. ej. RUT 12.345.678-9 → •••••5678-9), suficiente para que un
+// hospital confirme identidad sin exponer el dato completo a quien tenga una foto
+// del QR. En valores cortos se muestra menos.
+function maskIdentifier(value, visible) {
+  const text = typeof value === 'string' ? value.trim() : '';
+  if (!text) return '';
+  const alphanumerics = text.replace(/[^0-9a-z]/gi, '').length;
+  const keep = alphanumerics > visible + 2 ? visible : Math.max(1, Math.floor(alphanumerics / 3));
+  let start = text.length;
+  for (let seen = 0; start > 0 && seen < keep;) {
+    start -= 1;
+    if (/[0-9a-z]/i.test(text[start])) seen += 1;
+  }
+  return `•••••${text.slice(start)}`;
+}
+
 function calculateAge(birthDate) {
   const match = typeof birthDate === 'string' && birthDate.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (!match) return null;
@@ -171,6 +188,14 @@ app.get('/api/v1/emergency/:publicToken', emergencyLimiter, async (req, res) => 
 
     // Retornamos únicamente la información vital para paramédicos/emergencias
     // No se expone el ID interno: solo sirve para rutas autenticadas.
+    // RUT y número de póliza van enmascarados (el titular y el admin los ven completos).
+    const maskedNationalId = maskIdentifier(profile.nationalId, 5);
+    const insurance = profile.insurance || {};
+    const publicInsurance = {
+      company: insurance.company || '',
+      emergencyLine: insurance.emergencyLine || '',
+      policyNumber: maskIdentifier(insurance.policyNumber, 4),
+    };
     res.json({
       public_token: profile.public_token,
       is_active: profile.is_active !== false,
@@ -181,8 +206,8 @@ app.get('/api/v1/emergency/:publicToken', emergencyLimiter, async (req, res) => 
       birth_date: profile.birthDate || '',
       birthDate: profile.birthDate || '',
       age: profile.age,
-      national_id: profile.nationalId || '',
-      nationalId: profile.nationalId || '',
+      national_id: maskedNationalId,
+      nationalId: maskedNationalId,
       blood_type: profile.bloodType,
       bloodType: profile.bloodType,
       organ_donor: Boolean(profile.organDonor),
@@ -199,7 +224,7 @@ app.get('/api/v1/emergency/:publicToken', emergencyLimiter, async (req, res) => 
       ].filter(c => c && (c.name || c.phone)),
       primaryContact: profile.primaryContact,
       secondaryContact: profile.secondaryContact,
-      insurance: profile.insurance,
+      insurance: publicInsurance,
       preferred_hospital: profile.preferredHospital,
       preferredHospital: profile.preferredHospital
     });
@@ -441,6 +466,35 @@ app.patch('/api/profiles/:id/status', verifyToken, async (req, res) => {
   } catch (error) {
     console.error('Error al cambiar estado:', error);
     res.status(500).json({ error: error.message });
+  }
+});
+
+// 5b. Regenerar el QR (nuevo token público). El QR anterior deja de funcionar.
+// 🔒 PROTEGIDO: el titular de la ficha o un administrador.
+function sendRotatedToken(res, updated) {
+  if (!updated) return res.status(404).json({ error: 'Perfil no encontrado.' });
+  res.json({
+    message: 'Código QR regenerado. El QR anterior ya no funciona; imprime o pide el nuevo.',
+    id: updated.id,
+    public_token: updated.public_token,
+  });
+}
+
+app.post('/api/profiles/:id/rotate-token', verifyToken, async (req, res) => {
+  try {
+    sendRotatedToken(res, await db.rotatePublicToken(req.params.id, req.user.userId));
+  } catch (error) {
+    console.error('Error al regenerar QR:', error);
+    res.status(500).json({ error: 'No se pudo regenerar el código QR.' });
+  }
+});
+
+app.post('/api/admin/profiles/:id/rotate-token', verifyToken, requireAdmin, async (req, res) => {
+  try {
+    sendRotatedToken(res, await db.rotatePublicToken(req.params.id));
+  } catch (error) {
+    console.error('Error al regenerar QR desde administración:', error);
+    res.status(500).json({ error: 'No se pudo regenerar el código QR.' });
   }
 });
 

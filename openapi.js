@@ -90,6 +90,14 @@ const openApiSpec = {
         },
         description: 'El plan no se envía: lo fija el administrador al crear la invitación.',
       },
+      RotatedToken: {
+        type: 'object',
+        properties: {
+          message: { type: 'string' },
+          id: { type: 'string', format: 'uuid' },
+          public_token: { type: 'string', format: 'uuid' },
+        },
+      },
       CreateInvitationRequest: {
         type: 'object',
         required: ['email', 'fullName', 'plan'],
@@ -469,6 +477,28 @@ const openApiSpec = {
               qrDataUrl: { type: 'string', description: 'Data URL del QR; con ?format=png responde una imagen PNG' },
             },
           }], [401, 'Sesión inválida'], [403, 'Se requieren privilegios de administrador'], [404, 'Ficha no encontrada']]),
+        },
+      },
+    },
+    '/api/admin/profiles/{id}/rotate-token': {
+      post: {
+        tags: ['Administration'],
+        summary: 'Regenerar el QR de cualquier ficha; el QR anterior deja de funcionar (solo administradores)',
+        security: bearer,
+        parameters: pathId,
+        responses: {
+          ...responses([[200, 'Token público nuevo', ref('RotatedToken')], [401, 'Sesión inválida'], [403, 'Se requieren privilegios de administrador'], [404, 'Ficha no encontrada']]),
+        },
+      },
+    },
+    '/api/profiles/{id}/rotate-token': {
+      post: {
+        tags: ['Profiles'],
+        summary: 'Regenerar el QR de una ficha propia; el QR anterior deja de funcionar',
+        security: bearer,
+        parameters: pathId,
+        responses: {
+          ...responses([[200, 'Token público nuevo', ref('RotatedToken')], [401, 'Token ausente o inválido'], [404, 'Ficha no encontrada']]),
         },
       },
     },
