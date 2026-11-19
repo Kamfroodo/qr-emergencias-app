@@ -139,6 +139,10 @@ Completa `.env` con la configuración apropiada para tu entorno:
 | `SUPABASE_PHOTO_BUCKET` | `medical-photos` | Nombre del bucket **privado** de fotos en Supabase Storage |
 | `JWT_SECRET` | Secreto local; no lo compartas | Secreto aleatorio de al menos 32 bytes |
 | `JWT_EXPIRES_IN` | `24h` | Duración de sesión deseada, por ejemplo `24h` |
+| `ACCESS_LOG_SECRET` | Opcional | Opcional: secreto aleatorio para la huella de IP del registro de accesos. Si falta se usa `JWT_SECRET` (al cambiarlo, las huellas antiguas dejan de coincidir) |
+| `TRUST_PROXY` | Vacío | Opcional: saltos de proxy para obtener la IP real del cliente. Por defecto `1` en producción (Render) |
+| `CORS_ORIGINS` | Vacío | Opcional: otros dominios que pueden llamar a la API desde el navegador, separados por coma. Vacío = solo el propio sitio |
+| `API_DOCS_ENABLED` | Activo por defecto | Desactivado por defecto; `true` para publicar Swagger en `/api-docs` |
 
 Genera un secreto JWT en vez de usar un valor de ejemplo:
 
@@ -213,7 +217,7 @@ Si no ejecutas `supabase_access_control.sql`, los endpoints de invitaciones no e
 
 ## API y Swagger
 
-Con el servidor iniciado:
+Con el servidor iniciado (en producción Swagger está desactivado salvo `API_DOCS_ENABLED=true`):
 
 - Swagger UI: `http://localhost:3000/api-docs`
 - Especificación OpenAPI JSON: `http://localhost:3000/api-docs.json`

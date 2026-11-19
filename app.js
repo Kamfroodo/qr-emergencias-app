@@ -29,7 +29,14 @@ if (trustProxy) app.set('trust proxy', /^\d+$/.test(trustProxy) ? Number(trustPr
 // ==========================================
 // Middlewares Globales
 // ==========================================
-app.use(cors());
+// CORS: el frontend se sirve desde este mismo servidor, así que no necesita CORS.
+// Solo se permiten otros orígenes si se listan en CORS_ORIGINS (separados por coma).
+// Sin la cabecera, el navegador impide que otros sitios lean las respuestas de la API.
+const corsOrigins = (process.env.CORS_ORIGINS || '')
+  .split(',')
+  .map(origin => origin.trim().replace(/\/+$/, ''))
+  .filter(Boolean);
+app.use(cors({ origin: corsOrigins.length ? corsOrigins : false }));
 
 // Las fotos se sirven con URL firmadas desde Supabase Storage: solo ese origen.
 const supabaseOrigin = (() => {
@@ -73,16 +80,21 @@ app.use(express.urlencoded({ extended: true }));
 // Archivos estáticos del Frontend
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Documentación interactiva de la API
-app.get('/api-docs.json', (req, res) => {
-  res.json(openApiSpec);
-});
-app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(openApiSpec, {
-  customSiteTitle: 'QR Emergencias API',
-  swaggerOptions: {
-    persistAuthorization: false,
-  },
-}));
+// Documentación interactiva de la API: activa en desarrollo; en producción solo
+// si API_DOCS_ENABLED=true (no conviene publicar el mapa completo de la API).
+const apiDocsEnabled = process.env.API_DOCS_ENABLED === 'true' ||
+  (process.env.API_DOCS_ENABLED !== 'false' && process.env.NODE_ENV !== 'production');
+if (apiDocsEnabled) {
+  app.get('/api-docs.json', (req, res) => {
+    res.json(openApiSpec);
+  });
+  app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(openApiSpec, {
+    customSiteTitle: 'QR Emergencias API',
+    swaggerOptions: {
+      persistAuthorization: false,
+    },
+  }));
+}
 
 // Conexión a Base de Datos (Supabase con fallback local)
 const db = require('./db');
@@ -487,7 +499,7 @@ const createProfileHandlerLocked = async (req, res) => {
       return res.status(409).json({ error: error.message, code: error.code });
     }
     console.error('Error al crear perfil:', error);
-    res.status(500).json({ error: 'Error interno del servidor al generar el perfil: ' + error.message });
+    res.status(500).json({ error: 'No se pudo crear la ficha médica. Inténtalo nuevamente.' });
   }
 };
 
@@ -515,7 +527,7 @@ app.patch('/api/profiles/:id/status', verifyToken, async (req, res) => {
     });
   } catch (error) {
     console.error('Error al cambiar estado:', error);
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: 'No se pudo cambiar el estado del QR. Inténtalo nuevamente.' });
   }
 });
 
@@ -660,7 +672,7 @@ app.put('/api/profiles/:id', verifyToken, async (req, res) => {
     res.json(await db.withPhotoUrl(updated));
   } catch (error) {
     console.error('Error al actualizar perfil:', error);
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: 'No se pudo guardar la ficha médica. Inténtalo nuevamente.' });
   }
 });
 
@@ -706,7 +718,7 @@ app.post('/api/profiles/:id/photo', verifyToken, (req, res, next) => {
     res.json(await db.withPhotoUrl(updated));
   } catch (error) {
     console.error('Error al guardar foto del perfil:', error);
-    res.status(500).json({ error: error.message || 'No se pudo guardar la foto del perfil.' });
+    res.status(500).json({ error: 'No se pudo guardar la foto del perfil. Inténtalo nuevamente.' });
   }
 });
 
@@ -724,7 +736,7 @@ app.delete('/api/profiles/:id', verifyToken, async (req, res) => {
     res.json({ message: 'Perfil eliminado correctamente', id });
   } catch (error) {
     console.error('Error al eliminar perfil:', error);
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: 'No se pudo eliminar la ficha médica. Inténtalo nuevamente.' });
   }
 });
 

@@ -655,7 +655,7 @@ router.post('/invitation/accept', invitationLimiter, async (req, res) => {
       return res.status(503).json({ error: 'No se pudo conectar con Supabase.' });
     }
     console.error('[Auth] Error al aceptar invitación:', error);
-    res.status(503).json({ error: error.message || 'No se pudo activar la cuenta.' });
+    res.status(503).json({ error: 'No se pudo activar la cuenta. Inténtalo nuevamente en unos minutos.' });
   }
 });
 
