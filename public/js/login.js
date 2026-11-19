@@ -1,48 +1,44 @@
 // login.js - Lógica de login.html (en archivo aparte para que la CSP no permita scripts inline).
 // ==========================================
-// Gestión de sesión JWT
+// Sesión: cookie httpOnly puesta por el servidor (JavaScript no puede leerla).
+// Aquí solo se guardan los datos visibles del usuario para la interfaz.
 // ==========================================
-const AUTH_KEY = 'qr_em_token';
 const USER_KEY = 'qr_em_user';
+const LEGACY_TOKEN_KEY = 'qr_em_token';
+const CSRF_HEADERS = { 'X-Requested-With': 'fetch' };
 
-function getToken() { return localStorage.getItem(AUTH_KEY); }
-function getUser()  { return JSON.parse(localStorage.getItem(USER_KEY) || 'null'); }
-
-function saveSession(token, user) {
-  localStorage.setItem(AUTH_KEY, token);
-  localStorage.setItem(USER_KEY, JSON.stringify(user));
+function saveUser(user) {
+  try { localStorage.setItem(USER_KEY, JSON.stringify(user)); } catch (e) {}
 }
 
 function clearSession() {
-  localStorage.removeItem(AUTH_KEY);
-  localStorage.removeItem(USER_KEY);
+  try {
+    localStorage.removeItem(USER_KEY);
+    localStorage.removeItem(LEGACY_TOKEN_KEY);
+  } catch (e) {}
 }
 
-// Si ya hay sesión válida, redirigir al dashboard
-async function checkExistingSession() {
-  const token = getToken();
-  if (!token) return;
+// Borra el token que pudo quedar guardado por versiones anteriores.
+try { localStorage.removeItem(LEGACY_TOKEN_KEY); } catch (e) {}
 
+// Si ya hay sesión válida (cookie), redirigir al dashboard
+async function checkExistingSession() {
   try {
     const res = await fetch('/api/auth/verify', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`
-      },
+      headers: { 'Content-Type': 'application/json', ...CSRF_HEADERS },
+      credentials: 'same-origin',
       body: '{}'
     });
-    const data = await res.json();
-
-    if (data.valid) {
-      const currentUser = JSON.parse(localStorage.getItem(USER_KEY) || '{}');
-      saveSession(token, { ...currentUser, ...data.user });
-      window.location.replace('/dashboard.html');
-    } else {
+    if (!res.ok) {
       clearSession();
+      return;
     }
+    const data = await res.json();
+    saveUser(data.user);
+    window.location.replace('/dashboard.html');
   } catch (e) {
-    clearSession();
+    // Sin conexión: se queda en el login.
   }
 }
 
@@ -117,7 +113,8 @@ document.getElementById('loginForm').addEventListener('submit', async (e) => {
   try {
     const res = await fetch('/api/auth/login', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...CSRF_HEADERS },
+      credentials: 'same-origin',
       body: JSON.stringify({ email, password })
     });
 
@@ -128,7 +125,8 @@ document.getElementById('loginForm').addEventListener('submit', async (e) => {
       return;
     }
 
-    saveSession(data.token, data.user);
+    // La sesión ya quedó en la cookie httpOnly; solo se guardan los datos visibles.
+    saveUser(data.user);
     showAlert(`¡Bienvenido, ${data.user.fullName}! Redirigiendo...`, 'success');
 
     setTimeout(() => window.location.replace('/dashboard.html'), 1000);

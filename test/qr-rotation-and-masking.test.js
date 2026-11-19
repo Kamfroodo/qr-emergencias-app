@@ -29,6 +29,7 @@ async function request(path, { method = 'GET', body, token } = {}) {
   const response = await fetch(`${baseUrl}${path}`, {
     method,
     headers: {
+      'X-Auth-Mode': 'bearer', // clientes de API: reciben el token en la respuesta del login
       ...(body ? { 'Content-Type': 'application/json' } : {}),
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },

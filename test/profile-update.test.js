@@ -31,6 +31,7 @@ async function postJson(path, body, token) {
   const response = await fetch(`${baseUrl}${path}`, {
     method: 'POST',
     headers: {
+      'X-Auth-Mode': 'bearer', // clientes de API: reciben el token en la respuesta del login
       'Content-Type': 'application/json',
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },

@@ -1,119 +1,112 @@
 /**
  * public/js/auth.js
- * Módulo de autenticación JWT para el frontend.
- * Maneja: token en localStorage, headers automáticos, redirección y cierre de sesión.
- * Incluir este script ANTES de dashboard.js en cualquier página protegida.
+ * Sesión del frontend.
+ *
+ * La sesión vive en una cookie httpOnly que pone el servidor al iniciar sesión:
+ * JavaScript no puede leerla, así un script inyectado no puede robarla. Aquí solo
+ * se guardan los datos visibles del usuario (nombre, correo, rol) para pintar la
+ * interfaz; no sirven para autenticarse y el servidor vuelve a comprobarlo todo.
+ *
+ * Toda petición lleva la cabecera X-Requested-With, que el servidor exige en las
+ * acciones que modifican datos (protección contra CSRF).
  */
 
-const AUTH_KEY = 'qr_em_token';
 const USER_KEY = 'qr_em_user';
+const LEGACY_TOKEN_KEY = 'qr_em_token'; // versiones anteriores guardaban aquí el JWT
+const CSRF_HEADERS = { 'X-Requested-With': 'fetch' };
 
-// ==========================================
-// API pública del módulo Auth
-// ==========================================
+function readStorage(key) {
+  try { return localStorage.getItem(key); } catch { return null; }
+}
+function writeStorage(key, value) {
+  try { localStorage.setItem(key, value); } catch {}
+}
+function removeStorage(key) {
+  try { localStorage.removeItem(key); } catch {}
+}
+
+// Borra el token que pudo quedar de versiones anteriores.
+removeStorage(LEGACY_TOKEN_KEY);
+
 const Auth = {
-  /** Obtiene el token JWT almacenado */
-  getToken() {
-    return localStorage.getItem(AUTH_KEY);
-  },
-
-  /** Obtiene el objeto de usuario almacenado */
+  /** Datos visibles del usuario (no son una credencial). */
   getUser() {
     try {
-      return JSON.parse(localStorage.getItem(USER_KEY) || 'null');
+      return JSON.parse(readStorage(USER_KEY) || 'null');
     } catch {
       return null;
     }
   },
 
-  /** Verifica si hay sesión activa */
-  isLoggedIn() {
-    return Boolean(this.getToken());
+  saveUser(user) {
+    writeStorage(USER_KEY, JSON.stringify(user));
   },
 
-  /** Guarda sesión tras login exitoso */
-  saveSession(token, user) {
-    localStorage.setItem(AUTH_KEY, token);
-    localStorage.setItem(USER_KEY, JSON.stringify(user));
+  clearUser() {
+    removeStorage(USER_KEY);
   },
 
-  /** Limpia sesión y redirige al login */
-  logout() {
-    localStorage.removeItem(AUTH_KEY);
-    localStorage.removeItem(USER_KEY);
+  /** Cierra la sesión en el servidor (borra la cookie) y vuelve al login. */
+  async logout() {
+    try {
+      await fetch('/api/auth/logout', { method: 'POST', headers: CSRF_HEADERS, credentials: 'same-origin' });
+    } catch {}
+    this.clearUser();
     window.location.replace('/login.html');
   },
 
   /**
-   * Realiza un fetch autenticado: agrega automáticamente
-   * el header Authorization: Bearer <token> a cada request.
-   * Si el servidor responde 401/403, cierra sesión.
+   * fetch autenticado: envía la cookie de sesión y la cabecera anti-CSRF.
+   * Si el servidor responde 401, la sesión terminó: vuelve al login.
    */
   async fetch(url, options = {}) {
-    const token = this.getToken();
-
     const headers = {
       'Content-Type': 'application/json',
+      ...CSRF_HEADERS,
       ...(options.headers || {}),
     };
 
-    if (token) {
-      headers['Authorization'] = `Bearer ${token}`;
+    const response = await fetch(url, { ...options, headers, credentials: 'same-origin' });
+
+    let sessionEnded = response.status === 401;
+    if (response.status === 403) {
+      const data = await response.clone().json().catch(() => ({}));
+      sessionEnded = data.code === 'TOKEN_INVALID' || data.code === 'TOKEN_EXPIRED';
     }
-
-    const response = await fetch(url, { ...options, headers });
-
-    // Sesión expirada o token inválido → cerrar sesión automáticamente
-    if (response.status === 401 || response.status === 403) {
-      const data = await response.json().catch(() => ({}));
-
-      // Solo cerrar sesión si el error es de token, no de otro recurso
-      if (data.code === 'TOKEN_EXPIRED' || data.code === 'TOKEN_INVALID' ||
-          response.status === 401) {
-        this.logout();
-        throw new Error('Sesión expirada. Por favor inicia sesión nuevamente.');
-      }
+    if (sessionEnded) {
+      await this.logout();
+      throw new Error('Sesión expirada. Por favor inicia sesión nuevamente.');
     }
 
     return response;
   },
 
-  /**
-   * Verifica que el token en localStorage sigue siendo válido.
-   * Redirige a login si no lo es.
-   */
+  /** Comprueba con el servidor que la sesión sigue activa; si no, va al login. */
   async requireAuth() {
-    if (!this.isLoggedIn()) {
-      window.location.replace('/login.html');
-      return false;
-    }
-
     try {
       const res = await fetch('/api/auth/verify', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${this.getToken()}`
-        },
-        body: '{}'
+        headers: { 'Content-Type': 'application/json', ...CSRF_HEADERS },
+        credentials: 'same-origin',
+        body: '{}',
       });
 
-      const data = await res.json();
-
-      if (!data.valid) {
-        this.logout();
+      if (!res.ok) {
+        this.clearUser();
+        window.location.replace('/login.html');
         return false;
       }
 
-      const currentUser = this.getUser() || {};
-      this.saveSession(this.getToken(), { ...currentUser, ...data.user });
+      const data = await res.json();
+      this.saveUser({ ...(this.getUser() || {}), ...data.user });
       return true;
     } catch {
-      // En caso de error de red, permitir continuar con el token existente
-      return true;
+      // Sin red: se continúa solo si ya había una sesión iniciada en este navegador.
+      if (this.getUser()) return true;
+      window.location.replace('/login.html');
+      return false;
     }
-  }
+  },
 };
 
-// Exportar globalmente para uso en scripts no-módulo
 window.Auth = Auth;

@@ -46,7 +46,7 @@ before(async () => {
   await createLocalUserForTests({ email, password: 'photos-secure-password', fullName: 'Photos', role: 'user' });
   const login = await fetch(`${baseUrl}/api/auth/login`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'X-Auth-Mode': 'bearer' },
     body: JSON.stringify({ email, password: 'photos-secure-password' }),
   });
   token = (await login.json()).token;

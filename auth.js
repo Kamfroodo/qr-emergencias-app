@@ -27,6 +27,61 @@ if (process.env.NODE_ENV === 'production' &&
   throw new Error('En producción, JWT_SECRET debe tener al menos 32 bytes aleatorios.');
 }
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '24h';
+
+// ==========================================
+// Sesión en cookie httpOnly
+// ==========================================
+// El navegador guarda el JWT en una cookie que JavaScript no puede leer, así un
+// script inyectado no puede robar la sesión. En producción usa el prefijo
+// __Host- (exige Secure, Path=/ y sin Domain). Los clientes de API pueden seguir
+// usando Authorization: Bearer (piden el token con la cabecera X-Auth-Mode: bearer).
+const IS_PRODUCTION = process.env.NODE_ENV === 'production';
+const SESSION_COOKIE = IS_PRODUCTION ? '__Host-qr_session' : 'qr_session';
+const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
+// Cabecera que solo puede enviar nuestro propio frontend: un sitio ajeno no puede
+// agregarla sin un preflight CORS, y CORS está cerrado. Protege contra CSRF.
+const CSRF_HEADER = 'x-requested-with';
+
+function sessionCookieOptions(maxAgeMs) {
+  return {
+    httpOnly: true,
+    secure: IS_PRODUCTION,
+    sameSite: 'strict',
+    path: '/',
+    ...(maxAgeMs === undefined ? {} : { maxAge: maxAgeMs }),
+  };
+}
+
+function readCookie(req, name) {
+  const header = req.headers.cookie;
+  if (typeof header !== 'string') return null;
+  for (const part of header.split(';')) {
+    const index = part.indexOf('=');
+    if (index === -1) continue;
+    if (part.slice(0, index).trim() === name) {
+      try {
+        return decodeURIComponent(part.slice(index + 1).trim());
+      } catch {
+        return null;
+      }
+    }
+  }
+  return null;
+}
+
+// Token de la petición: primero Authorization: Bearer (API), si no la cookie (navegador).
+function getRequestToken(req) {
+  const authHeader = req.headers.authorization;
+  if (typeof authHeader === 'string' && authHeader.startsWith('Bearer ')) {
+    return { token: authHeader.slice(7).trim(), viaCookie: false };
+  }
+  const cookieToken = readCookie(req, SESSION_COOKIE);
+  return cookieToken ? { token: cookieToken, viaCookie: true } : { token: null, viaCookie: false };
+}
+
+function hasCsrfHeader(req) {
+  return Boolean(req.get(CSRF_HEADER));
+}
 const BCRYPT_ROUNDS = 12;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -532,16 +587,22 @@ async function deleteUserAccount(id) {
  * Si es válido, agrega req.user con los datos del usuario.
  */
 const verifyToken = async (req, res, next) => {
-  const authHeader = req.headers['authorization'];
+  const { token, viaCookie } = getRequestToken(req);
 
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+  if (!token) {
     return res.status(401).json({
       error: 'Acceso denegado.',
-      detail: 'Token de autenticación no proporcionado. Incluye el header: Authorization: Bearer <token>'
+      detail: 'Inicia sesión. Los clientes de API pueden usar el header Authorization: Bearer <token>.'
     });
   }
 
-  const token = authHeader.split(' ')[1];
+  // Con cookie, las acciones que modifican datos exigen la cabecera anti-CSRF.
+  if (viaCookie && !SAFE_METHODS.has(req.method) && !hasCsrfHeader(req)) {
+    return res.status(403).json({
+      error: 'Solicitud rechazada por seguridad. Recarga la página e inténtalo de nuevo.',
+      code: 'CSRF_HEADER_REQUIRED',
+    });
+  }
 
   try {
     const decoded = jwt.verify(token, JWT_SECRET);
@@ -756,9 +817,14 @@ router.delete('/admin/invitations/:id', verifyToken, requireAdmin, async (req, r
  */
 router.post('/login', loginPerIpLimiter, loginPerAccountLimiter, async (req, res) => {
   try {
+    // Solo JSON: un formulario de otro sitio no puede enviarlo sin preflight CORS,
+    // así nadie puede iniciar sesión en tu navegador con la cuenta de un atacante.
+    if (!req.is('application/json')) {
+      return res.status(415).json({ error: 'El inicio de sesión debe enviarse como JSON.' });
+    }
     const { email, password } = req.body;
 
-    if (!email || !password) {
+    if (typeof email !== 'string' || typeof password !== 'string' || !email || !password) {
       return res.status(400).json({ error: 'El correo y la contraseña son obligatorios.' });
     }
 
@@ -798,14 +864,19 @@ router.post('/login', loginPerIpLimiter, loginPerAccountLimiter, async (req, res
       { expiresIn: JWT_EXPIRES_IN }
     );
 
-    // Calcular tiempo de expiración legible
-    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+    const expiresAtMs = jwt.decode(token).exp * 1000;
+    const expiresAt = new Date(expiresAtMs).toISOString();
 
     console.log(`[Auth] Login exitoso: ${user.email}`);
 
+    // El navegador recibe la sesión solo en la cookie httpOnly. El token en el
+    // cuerpo se entrega únicamente a clientes de API que lo piden explícitamente.
+    res.cookie(SESSION_COOKIE, token, sessionCookieOptions(expiresAtMs - Date.now()));
+    const wantsBearer = String(req.get('x-auth-mode') || '').toLowerCase() === 'bearer';
+
     res.json({
       message: 'Inicio de sesión exitoso.',
-      token,
+      ...(wantsBearer ? { token } : {}),
       expiresAt,
       user: {
         id: user.id,
@@ -829,9 +900,22 @@ router.post('/login', loginPerIpLimiter, loginPerAccountLimiter, async (req, res
 });
 
 /**
+ * POST /api/auth/logout
+ * Borra la cookie de sesión. Exige la cabecera anti-CSRF para que otro sitio
+ * no pueda cerrar la sesión del usuario.
+ */
+router.post('/logout', (req, res) => {
+  if (!hasCsrfHeader(req)) {
+    return res.status(403).json({ error: 'Solicitud rechazada por seguridad.', code: 'CSRF_HEADER_REQUIRED' });
+  }
+  res.clearCookie(SESSION_COOKIE, sessionCookieOptions());
+  res.json({ message: 'Sesión cerrada.' });
+});
+
+/**
  * GET /api/auth/me
  * Obtener información del usuario autenticado actualmente.
- * Requiere: Authorization: Bearer <token>
+ * Requiere la cookie de sesión o Authorization: Bearer <token>.
  */
 router.get('/me', verifyToken, (req, res) => {
   res.json({
@@ -989,7 +1073,7 @@ router.post('/verify', verifyToken, (req, res) => {
   });
 });
 
-const authModule = { router, verifyToken, isUserAccountValid, findUserById };
+const authModule = { router, verifyToken, isUserAccountValid, findUserById, SESSION_COOKIE };
 if (process.env.NODE_ENV === 'test') {
   authModule.setLocalUserRoleForTests = (id, role) => {
     const user = localUsers.find(entry => entry.id === id);

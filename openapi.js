@@ -52,7 +52,7 @@ const openApiSpec = {
         type: 'http',
         scheme: 'bearer',
         bearerFormat: 'JWT',
-        description: 'Usa el token entregado por POST /api/auth/login.',
+        description: 'Para clientes de API: inicia sesión con la cabecera "X-Auth-Mode: bearer" para recibir el token en la respuesta. El navegador usa en cambio la cookie httpOnly de sesión y debe enviar "X-Requested-With" en las acciones que modifican datos.',
       },
     },
     schemas: {
@@ -343,10 +343,26 @@ const openApiSpec = {
     '/api/auth/login': {
       post: {
         tags: ['Authentication'],
-        summary: 'Iniciar sesión y obtener JWT',
+        summary: 'Iniciar sesión: crea la cookie httpOnly de sesión (y entrega el JWT solo con X-Auth-Mode: bearer)',
+        parameters: [{
+          name: 'X-Auth-Mode',
+          in: 'header',
+          required: false,
+          description: 'Usa "bearer" para recibir el JWT en la respuesta (clientes de API).',
+          schema: { type: 'string', enum: ['bearer'] },
+        }],
         requestBody: { required: true, ...json(ref('Credentials')) },
         responses: {
-          ...responses([[200, 'Sesión iniciada', ref('AuthResponse')], [400, 'Faltan credenciales'], [401, 'Credenciales inválidas'], [403, 'Cuenta suspendida']]),
+          ...responses([[200, 'Sesión iniciada', ref('AuthResponse')], [400, 'Faltan credenciales'], [401, 'Credenciales inválidas'], [403, 'Cuenta suspendida'], [415, 'El cuerpo debe ser JSON']]),
+        },
+      },
+    },
+    '/api/auth/logout': {
+      post: {
+        tags: ['Authentication'],
+        summary: 'Cerrar sesión: borra la cookie de sesión (requiere la cabecera X-Requested-With)',
+        responses: {
+          ...responses([[200, 'Sesión cerrada'], [403, 'Falta la cabecera X-Requested-With']]),
         },
       },
     },
