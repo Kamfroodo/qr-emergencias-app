@@ -107,8 +107,41 @@ async function getAllProfiles(userId) {
   return userId ? localProfiles.filter(profile => profile.user_id === userId) : localProfiles;
 }
 
+// Los identificadores llegan desde la URL. Solo se aceptan UUID para que ningún
+// texto del usuario pueda alterar los filtros de PostgREST (por ejemplo, `,id.gt.…`).
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function isUuid(value) {
+  return typeof value === 'string' && UUID_PATTERN.test(value);
+}
+
+// Búsqueda pública (escaneo del QR): solo por token público, nunca por ID interno.
+async function getProfileByPublicToken(publicToken) {
+  if (!isUuid(publicToken)) return null;
+
+  if (supabase) {
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('public_token', publicToken)
+      .limit(1)
+      .maybeSingle();
+
+    if (error) {
+      console.error('[DB Error] getProfileByPublicToken:', error.message);
+      if (process.env.NODE_ENV === 'production') {
+        throw new Error('No se pudo consultar el perfil en Supabase.');
+      }
+      return localProfiles.find(p => p.public_token === publicToken) || null;
+    }
+    return mapFromDb(data);
+  }
+
+  return localProfiles.find(p => p.public_token === publicToken) || null;
+}
+
 async function getProfileByIdOrToken(identifier, userId) {
-  if (!identifier) return null;
+  if (!isUuid(identifier)) return null;
 
   if (supabase) {
     // Buscar por ID interno o por token público
@@ -298,6 +331,7 @@ function isSupabaseConnected() {
 
 module.exports = {
   getAllProfiles,
+  getProfileByPublicToken,
   getProfileByIdOrToken,
   createProfile,
   updateProfile,

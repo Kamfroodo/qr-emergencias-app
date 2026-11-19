@@ -130,8 +130,8 @@ app.get('/api/v1/emergency/:publicToken', async (req, res) => {
   try {
     const { publicToken } = req.params;
 
-    // Buscar en base de datos por token público o ID
-    const profile = await db.getProfileByIdOrToken(publicToken);
+    // Buscar solo por token público (UUID). Un valor inválido responde igual que uno inexistente.
+    const profile = await db.getProfileByPublicToken(publicToken);
 
     if (!profile) {
       return res.status(404).json({ error: 'Perfil de emergencia no encontrado.' });
@@ -162,8 +162,8 @@ app.get('/api/v1/emergency/:publicToken', async (req, res) => {
     }
 
     // Retornamos únicamente la información vital para paramédicos/emergencias
+    // No se expone el ID interno: solo sirve para rutas autenticadas.
     res.json({
-      id: profile.id,
       public_token: profile.public_token,
       is_active: profile.is_active !== false,
       profile_name: profile.fullName,

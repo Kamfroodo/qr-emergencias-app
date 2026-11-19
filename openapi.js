@@ -478,8 +478,8 @@ const openApiSpec = {
           name: 'publicToken',
           in: 'path',
           required: true,
-          description: 'Token público o ID de ficha',
-          schema: { type: 'string' },
+          description: 'Token público del QR (UUID). El ID interno de la ficha no se acepta.',
+          schema: { type: 'string', format: 'uuid' },
         }],
         responses: {
           ...responses([[200, 'Información de emergencia', ref('EmergencyProfile')], [403, 'Ficha pausada'], [404, 'Ficha no encontrada']]),
